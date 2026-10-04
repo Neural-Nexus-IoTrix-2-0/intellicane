@@ -12,16 +12,16 @@ Target Prototype Budget: **LKR 20,000 – 35,000**
 | 1 | Microcontroller Board | **ESP32-C3 SuperMini** (RISC-V 160MHz, native USB-C) | 1 | 1,800 | 1,800 | Ultra-compact cane handle MCU |
 | 2 | Distance Sensor | **HC-SR04** Ultrasonic Sensor (2cm–400cm) | 1 | 650 | 650 | Obstacle ranging |
 | 3 | 6-Axis Motion / Fall Sensor | **MPU6050** Accelerometer + Gyroscope (GY-521) | 1 | 950 | 950 | I2C orientation & fall tracking |
-| 4 | Haptic Actuator | Coin Vibration Motor (3V 1027/1034) | 1 | 250 | 250 | Proportional tactile feedback |
+| 4 | Haptic Actuator Module | **3-Pin Vibration Motor Module** (Integrated Driver) | 1 | 350 | 350 | Tactile feedback with onboard MOSFET & diode |
 | 5 | Audible Alarm | Active / Passive 5V Piezo Buzzer | 1 | 150 | 150 | Critical close proximity & fall siren |
-| 6 | Motor Driver & Diode (Production Rev) | 2N2222 NPN BJT + 1N4148 Diode + 1kΩ | 0 (1 opt) | 150 | 0 | *Omitted in bench build (direct GPIO 6 drive used)* |
+| 6 | Discrete Driver & Diode | 2N2222 / 1N4148 (Not needed with 3-pin module) | 0 | 150 | 0 | *Included directly on 3-pin motor module PCB* |
 | 7 | Voltage Divider Resistors (Production Rev)| 1kΩ and 2kΩ 1/4W Resistors | 0 (1 opt) | 50 | 0 | *Omitted in bench build (direct GPIO 1 Echo used)* |
 | 8 | Pushbutton (Production Rev) | 6x6mm tactile momentary pushbutton | 0 (1 opt) | 50 | 0 | *Omitted in bench build (auto-reset on upright used)* |
 | 9 | Battery System | 18650 Li-ion Cell (2500mAh) + Holder | 1 | 1,400 | 1,400 | Rechargeable power source |
 | 10 | Power Management | TP4056 USB-C Charger + MT3608 Boost module | 1 set | 650 | 650 | 3.7V to 5V step-up & charge control |
 | 11 | Cane Hardware & Mounting | Lightweight white cane / PVC shaft & clamp | 1 | 2,500 | 2,500 | Structural chassis |
 | 12 | Passive Components & Wire | Jumper wires, perfboard | 1 lot | 1,000 | 1,000 | Miscellaneous wiring |
-| **Phase 1 Total** | | | | | **~LKR 9,450** | *Well within budget ceiling (< LKR 10,000)* |
+| **Phase 1 Total** | | | | | **~LKR 9,550** | *Well within budget ceiling (< LKR 10,000)* |
 
 ---
 

@@ -12,13 +12,14 @@ This project contains the production firmware for the safety-critical obstacle d
 | | `ECHO` | **GPIO 1** | 3.3V / 5V | **Direct connection** (bench prototype) |
 | | `VCC` | **5V** | 5V Power | Powers ultrasonic transducer |
 | | `GND` | **GND** | 0V | Common ground |
-| **MPU6050** (6-Axis IMU) | `SDA` | **GPIO 4** | 3.3V | Hardware I2C Data line |
-| | `SCL` | **GPIO 5** | 3.3V | Hardware I2C Clock line |
-| | `VCC` | **3V3** | 3.3V Power | Onboard 3.3V regulator rail |
+| **MPU6050** (6-Axis IMU) | `SDA` | **GPIO 4** | 3.3V | Hardware I2C Data line (GY-521 pin 4) |
+| | `SCL` | **GPIO 5** | 3.3V | Hardware I2C Clock line (GY-521 pin 3) |
+| | `VCC` | **5V** | 5V Power | Powers GY-521 onboard 3.3V regulator |
 | | `GND` | **GND** | 0V | Common ground |
-| | `AD0` | **GND** | 0V | Sets I2C address to `0x68` |
-| **Haptic Vibration Motor** | `(+) / Signal` | **GPIO 6** | 3.3V PWM | **Direct GPIO drive** (LEDC 200 Hz PWM, 8-bit) |
-| | `(-) / Ground` | **GND** | 0V | Common ground |
+| | `AD0` | **GND** | 0V | Sets I2C address to `0x68` (leave empty for default) |
+| **3-Pin Vibration Motor** | `IN / Signal` | **GPIO 6** | 3.3V PWM | 200 Hz LEDC PWM to onboard driver transistor |
+| | `VCC` | **5V** | 5V Power | Full power rail for maximum vibration torque |
+| | `GND` | **GND** | 0V | Common ground |
 | **Piezo Buzzer** | `(+) / Signal` | **GPIO 7** | 3.3V | Supports both Active & Passive 5V/3.3V buzzers |
 | | `(-) / GND` | **GND** | 0V | Common ground |
 | **Push Button (Optional)** | Switch | **GPIO 3** | 3.3V Input | Optional / unpopulated on bench build (Internal pullup) |

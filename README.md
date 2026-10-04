@@ -85,9 +85,9 @@ intelligent-cane/
 |:---|:---|:---:|:---:|:---|
 | **HC-SR04 Ultrasonic** | Trigger Pulse (`TRIG`) | **GPIO 0** | 3.3V Output | 10 µs trigger pulse |
 | **HC-SR04 Ultrasonic** | Echo Pulse (`ECHO`) | **GPIO 1** | 3.3V / 5V | Direct connection on bench build (divider optional for prod) |
-| **MPU6050 (6-Axis IMU)**| I2C Data (`SDA`) | **GPIO 4** | 3.3V | Hardware I2C bus (Address: `0x68`) |
-| **MPU6050 (6-Axis IMU)**| I2C Clock (`SCL`) | **GPIO 5** | 3.3V | Hardware I2C bus |
-| **Haptic Vibration Motor**| `(+) / Signal` | **GPIO 6** | 3.3V PWM | Direct GPIO drive on bench build (LEDC 200 Hz PWM) |
+| **MPU6050 (6-Axis IMU)**| I2C Data (`SDA`) | **GPIO 4** | 3.3V | Hardware I2C bus (GY-521 pin 4; VCC to 5V) |
+| **MPU6050 (6-Axis IMU)**| I2C Clock (`SCL`) | **GPIO 5** | 3.3V | Hardware I2C bus (GY-521 pin 3) |
+| **3-Pin Vibration Motor**| `IN / Signal` | **GPIO 6** | 3.3V PWM | Integrated driver module (VCC to 5V, LEDC 200 Hz) |
 | **Piezo Buzzer** | Audio Alarm (`+`) | **GPIO 7** | 3.3V | Universal driver for active & passive buzzers |
 | **Push Button (Optional)** | Alarm Reset / Emergency | **GPIO 3** | 3.3V Input | Optional / unpopulated on bench build (alarm auto-clears when upright) |
 | **Status LED** | Visual Indicator | **GPIO 8** | 3.3V | Onboard SuperMini blue LED (**Active LOW**) |
@@ -170,6 +170,6 @@ Sample telemetry stream:
 ## 6. Budget & BOM Summary
 
 Tracked target prototype budget: **LKR 20,000 – 35,000**
-- **Phase 1 Prototype Cost**: **~LKR 9,450** (under LKR 10,000 ceiling)
-- **Total Multi-phase Estimated Cost**: **~LKR 19,300** (achieves full system under target ceiling)
+- **Phase 1 Prototype Cost**: **~LKR 9,550** (under LKR 10,000 ceiling)
+- **Total Multi-phase Estimated Cost**: **~LKR 19,400** (achieves full system under target ceiling)
 - See [`hardware/BOM.md`](./hardware/BOM.md) for individual component pricing and local supplier references.

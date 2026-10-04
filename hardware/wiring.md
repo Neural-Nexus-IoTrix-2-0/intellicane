@@ -12,13 +12,14 @@ This guide details the complete electrical connections, pin mapping, driver circ
 | | `ECHO` | **GPIO 1** | 3.3V / 5V | 5V | **Direct connection** for bench prototype (omits divider) |
 | | `VCC` | **5V Pin** | — | 5V | Power from 5V rail / USB VIN |
 | | `GND` | **GND** | — | 0V | Common ground |
-| **MPU6050 (6-Axis IMU)** | `SDA` | **GPIO 4** | 3.3V | 3.3V | Hardware I2C Data line |
-| | `SCL` | **GPIO 5** | 3.3V | 3.3V | Hardware I2C Clock line |
-| | `AD0` | **GND** | 0V | — | Sets I2C address to `0x68` |
-| | `VCC` | **3V3 Pin** | — | 3.3V | Power from 3.3V rail |
+| **MPU6050 (6-Axis IMU)** | `SDA` | **GPIO 4** | 3.3V | 3.3V | Hardware I2C Data line (GY-521 pin 4) |
+| | `SCL` | **GPIO 5** | 3.3V | 3.3V | Hardware I2C Clock line (GY-521 pin 3) |
+| | `AD0` | **GND** | 0V | — | Sets I2C address to `0x68` (leave empty for default) |
+| | `VCC` | **5V Pin** | — | 5V | Powers GY-521 onboard 3.3V regulator cleanly |
 | | `GND` | **GND** | — | 0V | Common ground |
-| **Haptic Vibration Motor** | `(+) / Red` | **GPIO 6** | 3.3V PWM | 3.3V | **Direct GPIO drive** for bench prototype (omits transistor) |
-| | `(-) / Blue` | **GND** | — | 0V | Common ground |
+| **3-Pin Vibration Motor** | `IN / SIG` | **GPIO 6** | 3.3V PWM | — | 200 Hz LEDC PWM to onboard module driver |
+| | `VCC / (+)` | **5V Pin** | — | 5V | Full 5V power rail for maximum vibration torque |
+| | `GND / (-)` | **GND** | — | 0V | Common ground |
 | **Audible Alarm (Buzzer)** | `(+) / SIG` | **GPIO 7** | 3.3V | 3.3V / 5V | Supports both Active & Passive buzzers |
 | | `(-) / GND` | **GND** | — | 0V | Common ground |
 | **Push Button (SOS / Reset)** | `SWITCH` | **GPIO 3** | 3.3V | — | **Omitted in bench build** (Optional / unpopulated; alarm auto-resets when upright) |
@@ -29,17 +30,18 @@ This guide details the complete electrical connections, pin mapping, driver circ
 
 ## 2. Driver & Interfacing Diagrams
 
-### 2.1 Haptic Vibration Motor Circuit
+### 2.1 Haptic Vibration Motor (3-Pin Module with Integrated Driver)
 
-#### Current Bench Prototype Setup (Direct GPIO Connection)
-Due to local component availability constraints, the vibration motor is currently connected directly between **GPIO 6** and **GND**:
+The system utilizes a **3-pin vibration motor breakout module**, which features an integrated driver transistor (MOSFET), base resistor, and flyback protection diode directly on its PCB:
 
 ```
-ESP32-C3 GPIO 6 (LEDC PWM) ─────[ (+) Vibration Motor (-) ]───── GND
+ESP32-C3 5V Pin  ────────────────────────── VCC (+) [3-Pin Motor Module]
+ESP32-C3 GND Pin ────────────────────────── GND (-) [3-Pin Motor Module]
+ESP32-C3 GPIO 6  ────────────────────────── IN  (S) [3-Pin Motor Module]
 ```
-- **Driver**: Modulated via ESP32-C3 LEDC PWM at **200 Hz** (optimized for DC brushed coin vibration motors).
-- **Bench Note**: The motor runs directly from the GPIO pin current. For the current bench prototype, this simplifies assembly without needing external discrete components.
-- **Production Recommendation**: In the final revision or custom PCB, adding an NPN transistor (2N2222) or N-channel MOSFET with a 1N4148 flyback diode allows full current delivery (60–120 mA) and isolates the microcontroller from inductive transients.
+- **Driver**: Modulated via ESP32-C3 LEDC PWM at **200 Hz** for responsive tactile feedback.
+- **Power Delivery**: The module draws full operating current directly from the 5V power rail while GPIO 6 only supplies a low-current logic signal.
+- **Polarity Support**: Firmware provides configurable polarity (`MOTOR_ACTIVE_LOW = false/true`) in `core-sensing.ino` to support both standard active-HIGH and inverted active-LOW driver modules.
 
 #### Recommended Production Driver Circuit (Reference)
 ```

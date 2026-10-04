@@ -3,13 +3,13 @@
  * Intelligent Cane — Hardware Diagnostic & Robust Driver (ESP32-C3 SuperMini)
  * Neural-Nexus | IoTrix 2.0 (Track A Embedded IoT)
  * 
- * Hardware Connections (Direct Bench Setup):
- *   - HC-SR04:   TRIG -> GPIO 0, ECHO -> GPIO 1 (Direct connection), VCC -> 5V, GND -> GND
- *   - Motor:     (+) -> GPIO 6 (Direct GPIO drive), (-) -> GND
- *   - Buzzer:    (+) -> GPIO 7, (-) -> GND (Supports BOTH Active & Passive buzzers)
- *   - Button:    GPIO 3 (Optional / Unconnected in bench setup; pullup active)
- *   - MPU6050:   SDA -> GPIO 4, SCL -> GPIO 5, VCC -> 3V3, GND -> GND
- *   - LED:       Onboard Blue LED -> GPIO 8 (Active LOW)
+ * Hardware Connections (ESP32-C3 SuperMini):
+ *   - HC-SR04:       TRIG -> GPIO 0, ECHO -> GPIO 1, VCC -> 5V, GND -> GND
+ *   - 3-Pin Motor:   IN/SIG -> GPIO 6, VCC -> 5V, GND -> GND (Integrated driver)
+ *   - Buzzer:        (+) -> GPIO 7, (-) -> GND (Supports BOTH Active & Passive buzzers)
+ *   - Button:        GPIO 3 (Optional / Unconnected in bench setup; pullup active)
+ *   - MPU6050:       SDA -> GPIO 4, SCL -> GPIO 5, VCC -> 5V, GND -> GND
+ *   - Status LED:    Onboard Blue LED -> GPIO 8 (Active LOW)
  * ============================================================================
  */
 
@@ -23,13 +23,17 @@
 // ============================================================================
 constexpr uint8_t PIN_US_TRIG    = 0; // Ultrasonic Trigger
 constexpr uint8_t PIN_US_ECHO    = 1; // Ultrasonic Echo
-constexpr uint8_t PIN_VIBRATION  = 6; // Vibration Motor
+constexpr uint8_t PIN_VIBRATION  = 6; // Vibration Motor (3-Pin Module IN)
 constexpr uint8_t PIN_BUZZER     = 7; // Piezo Buzzer (Active or Passive)
 constexpr uint8_t PIN_BUTTON     = 3; // Pushbutton (Optional - unpopulated on bench build)
 constexpr uint8_t PIN_LED_C3     = 8; // Onboard LED (Active LOW)
 
 constexpr uint8_t PIN_I2C_SDA    = 4;
 constexpr uint8_t PIN_I2C_SCL    = 5;
+
+// Motor Polarity Configuration
+// Set to true if your 3-pin vibration module is Active-LOW (vibrates when input is LOW)
+constexpr bool MOTOR_ACTIVE_LOW  = false;
 
 Adafruit_MPU6050 mpu;
 bool mpuAvailable = false;
@@ -44,6 +48,14 @@ uint32_t lastSensorMs = 0;
 uint32_t lastTelemMs  = 0;
 uint32_t lastBuzzerMs = 0;
 bool buzzerState = false;
+
+// ============================================================================
+// Vibration Motor Driver
+// ============================================================================
+void setMotorPwm(uint8_t duty) {
+    uint8_t output = MOTOR_ACTIVE_LOW ? (255 - duty) : duty;
+    ledcWrite(PIN_VIBRATION, output);
+}
 
 // ============================================================================
 // Universal Buzzer Driver (Works on BOTH Active and Passive Buzzers)
@@ -98,7 +110,7 @@ void setup() {
 
     // Initialize Motor PWM at 200 Hz (Optimal for DC brushed vibration motors)
     ledcAttach(PIN_VIBRATION, 200, 8);
-    ledcWrite(PIN_VIBRATION, 0);
+    setMotorPwm(0);
 
     // ========================================================================
     // STARTUP SELF-TEST: Confirms Buzzer, Motor, and LED immediately
@@ -110,9 +122,9 @@ void setup() {
 
     Serial.println("[Self-Test] 2. Testing Vibration Motor (1-Second Full Spin)...");
     digitalWrite(PIN_LED_C3, LOW); // LED ON
-    ledcWrite(PIN_VIBRATION, 255); // 100% full spin
+    setMotorPwm(255); // 100% full spin
     delay(1000);
-    ledcWrite(PIN_VIBRATION, 0);   // Motor OFF
+    setMotorPwm(0);   // Motor OFF
     digitalWrite(PIN_LED_C3, HIGH); // LED OFF
 
     // Initialize I2C and MPU6050
@@ -197,7 +209,7 @@ void loop() {
         currentMotorPwm = (uint8_t)(100 + progress * (255 - 100));
     }
 
-    ledcWrite(PIN_VIBRATION, currentMotorPwm);
+    setMotorPwm(currentMotorPwm);
 
     // ------------------------------------------------------------------------
     // 3. Buzzer Alarm & Status LED
