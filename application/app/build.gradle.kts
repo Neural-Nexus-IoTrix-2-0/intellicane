@@ -3,13 +3,13 @@ plugins {
 }
 
 android {
-    namespace = "com.example.intelcane"
+    namespace = "com.example.intellicane"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.example.intelcane"
+        applicationId = "com.example.intellicane"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
@@ -32,6 +32,7 @@ android {
 }
 
 dependencies {
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)

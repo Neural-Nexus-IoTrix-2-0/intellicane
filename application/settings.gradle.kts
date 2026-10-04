@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "IntelCane"
+rootProject.name = "IntelliCane"
 include(":app")

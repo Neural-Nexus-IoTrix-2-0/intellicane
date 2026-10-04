@@ -1,4 +1,4 @@
-package com.example.intelcane
+package com.example.intellicane
 
 import org.junit.Test
 
