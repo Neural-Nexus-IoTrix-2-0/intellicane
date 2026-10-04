@@ -29,23 +29,49 @@
 #define BLE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 bool bleClientConnected = false;
+String connectedClientMac = "";
 BLEServer *pBleServer = nullptr;
 BLECharacteristic *pTelemetryCharacteristic = nullptr;
 
 class CaneBLECallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) override {
         bleClientConnected = true;
+    }
+
+#if defined(CONFIG_NIMBLE_ENABLED)
+    void onConnect(BLEServer* pServer, ble_gap_conn_desc *desc) override {
+        bleClientConnected = true;
+        if (desc != nullptr) {
+            BLEAddress peerAddr(desc->peer_ota_addr);
+            connectedClientMac = peerAddr.toString();
+        }
         Serial.println("\n=======================================================");
-        Serial.printf("  [BLE] >>> CLIENT CONNECTED! (Active: %u) <<<\n", pServer->getConnectedCount());
+        Serial.printf("  [BLE] >>> CLIENT CONNECTED! (Peer MAC: %s) <<<\n",
+                      connectedClientMac.length() > 0 ? connectedClientMac.c_str() : "Unknown");
         Serial.println("=======================================================\n");
     }
 
+    void onDisconnect(BLEServer* pServer, ble_gap_conn_desc *desc) override {
+        bleClientConnected = false;
+        String prevMac = connectedClientMac;
+        connectedClientMac = "";
+        Serial.println("\n=======================================================");
+        Serial.printf("  [BLE] <<< CLIENT DISCONNECTED (%s)! Restarting advertising... >>>\n",
+                      prevMac.length() > 0 ? prevMac.c_str() : "Unknown");
+        Serial.println("=======================================================\n");
+        BLEDevice::startAdvertising();
+    }
+#endif
+
     void onDisconnect(BLEServer* pServer) override {
         bleClientConnected = false;
+#if !defined(CONFIG_NIMBLE_ENABLED)
+        connectedClientMac = "";
         Serial.println("\n=======================================================");
         Serial.println("  [BLE] <<< CLIENT DISCONNECTED! Restarting advertising... >>>");
         Serial.println("=======================================================\n");
         BLEDevice::startAdvertising();
+#endif
     }
 };
 
@@ -464,13 +490,24 @@ void loop() {
             snprintf(tiltBuf, sizeof(tiltBuf), "NO_MPU");
         }
 
-        Serial.printf("[CANE-C3] Dist: %5.1f cm | Tilt: %s | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %s | Alert: %s\n",
+        char bleStatusBuf[40];
+        if (bleClientConnected) {
+            if (connectedClientMac.length() > 0) {
+                snprintf(bleStatusBuf, sizeof(bleStatusBuf), "CONN [%s]", connectedClientMac.c_str());
+            } else {
+                snprintf(bleStatusBuf, sizeof(bleStatusBuf), "CONNECTED");
+            }
+        } else {
+            snprintf(bleStatusBuf, sizeof(bleStatusBuf), "ADVERTISING");
+        }
+
+        Serial.printf("[CANE-C3] Dist: %5.1f cm | Tilt: %s | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %-22s | Alert: %s\n",
                       distanceCm,
                       tiltBuf,
                       vibPercent,
                       currentMotorPwm,
                       buzzerState ? "ON" : "OFF",
-                      bleClientConnected ? "CONNECTED" : "ADVERTISING",
+                      bleStatusBuf,
                       alertMsg);
 
         // Send live telemetry to connected BLE client
