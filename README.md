@@ -65,6 +65,7 @@ intelligent-cane/
 ├── ai-voice-service/                # Phase 3: Cloud/companion VLM + TTS pipeline
 ├── dashboard/                       # Family-facing web dashboard (HTML/JS)
 ├── hardware/                        # Hardware schematics, wiring, and BOM
+│   ├── circuit_diagram.png         # Official ESP32-C3 SuperMini schematic diagram
 │   ├── wiring.md                   # Pinouts, direct bench wiring, production driver circuits
 │   ├── BOM.md                      # Component list and LKR budget tracking
 │   └── README.md
@@ -93,7 +94,7 @@ intelligent-cane/
 | **Push Button (Optional)** | Alarm Reset / Emergency | **GPIO 3** | 3.3V Input | Optional / unpopulated on bench build (alarm auto-clears when upright) |
 | **Status LED** | Visual Indicator | **GPIO 8** | 3.3V | Onboard SuperMini blue LED (**Active LOW**) |
 
-*Full driver schematics, production circuits (transistor driver & voltage divider), and power distribution are documented in [`hardware/wiring.md`](./hardware/wiring.md).*
+*Full schematic, driver circuits, voltage divider calculations, and power distribution are documented in [`hardware/circuit_diagram.png`](./hardware/circuit_diagram.png) and [`hardware/wiring.md`](./hardware/wiring.md).*
 
 ---
 

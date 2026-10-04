@@ -4,13 +4,29 @@ This guide details the complete electrical connections, pin mapping, driver circ
 
 ---
 
+## Circuit Schematic Diagram
+
+![Intelligent Cane Circuit Diagram](./circuit_diagram.png)
+
+> **Key Electrical Specifications & Wiring Reference:**
+> - **Power Supply:** 5 V Regulated Rail powers ESP32-C3 `5V` pin, HC-SR04 `VCC`, GY-521 MPU6050 `VCC`, and Vibration Module `VCC`.
+> - **Logic Level:** 3.3 V Logic across all ESP32-C3 GPIOs.
+> - **Ultrasonic Echo Voltage Divider:** $R_1 = 1\text{ k}\Omega, R_2 = 1.8\text{ k}\Omega$ scales $5\text{ V Echo} \rightarrow 3.21\text{ V}$ to protect `GPIO 1`.
+> - **I2C Motion Bus:** `GPIO 4` (SDA) and `GPIO 5` (SCL) at 100 kHz; GY-521 `AD0` tied to GND for address `0x68`.
+> - **Haptic Vibration:** 3-pin module with integrated driver powered from 5 V, modulated via `GPIO 6` at 200 Hz LEDC PWM (active HIGH).
+> - **Audible Alert:** 3.3 V Active Buzzer driven from `GPIO 7` (direct drive for rated low-current buzzers).
+> - **Alarm Reset:** Optional pushbutton between `GPIO 3` and GND using internal `INPUT_PULLUP`.
+> - **Common Ground:** All module grounds (`GND`) are tied to a single common system ground.
+
+---
+
 ## 1. System Pinout Table (ESP32-C3 SuperMini)
 
 | Component | Pin Function | ESP32-C3 Pin | Logic Level | Operating Voltage | Notes |
 |:---|:---|:---:|:---:|:---:|:---|
 | **HC-SR04 (Ultrasonic)** | `TRIG` | **GPIO 0** | 3.3V | 5V | 10 µs trigger pulse output |
-| | `ECHO` | **GPIO 1** | 3.3V / 5V | 5V | **Direct connection** for bench prototype (omits divider) |
-| | `VCC` | **5V Pin** | — | 5V | Power from 5V rail / USB VIN |
+| | `ECHO` | **GPIO 1** | 3.21V | 5V | $R_1 = 1\text{ k}\Omega, R_2 = 1.8\text{ k}\Omega$ voltage divider ($5\text{V} \rightarrow 3.21\text{V}$) |
+| | `VCC` | **5V Pin** | — | 5V | Power from 5V regulated rail |
 | | `GND` | **GND** | — | 0V | Common ground |
 | **MPU6050 (6-Axis IMU)** | `SDA` | **GPIO 4** | 3.3V | 3.3V | Hardware I2C Data line (GY-521 pin 4) |
 | | `SCL` | **GPIO 5** | 3.3V | 3.3V | Hardware I2C Clock line (GY-521 pin 3) |
