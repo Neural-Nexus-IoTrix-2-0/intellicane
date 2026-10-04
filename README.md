@@ -71,6 +71,7 @@ intelligent-cane/
 ├── docs/                            # Architectural specifications & decision logs
 │   ├── architecture.md             # System architecture & block diagrams
 │   ├── decisions.md                # Architecture Decision Records (ADRs)
+│   ├── PROGRESS_REPORT.md          # 1-page executive technical progress report
 │   └── README.md
 ├── simulation/                      # Wokwi simulation workspace
 ├── .gitignore
