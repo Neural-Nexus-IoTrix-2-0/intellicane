@@ -7,7 +7,7 @@
  *   - HC-SR04:   TRIG -> GPIO 0, ECHO -> GPIO 1 (Direct connection), VCC -> 5V, GND -> GND
  *   - Motor:     (+) -> GPIO 6 (Direct GPIO drive), (-) -> GND
  *   - Buzzer:    (+) -> GPIO 7, (-) -> GND (Supports BOTH Active & Passive buzzers)
- *   - Button:    Pin 1 -> GPIO 3, Pin 2 -> GND (INPUT_PULLUP)
+ *   - Button:    GPIO 3 (Optional / Unconnected in bench setup; pullup active)
  *   - MPU6050:   SDA -> GPIO 4, SCL -> GPIO 5, VCC -> 3V3, GND -> GND
  *   - LED:       Onboard Blue LED -> GPIO 8 (Active LOW)
  * ============================================================================
@@ -25,7 +25,7 @@ constexpr uint8_t PIN_US_TRIG    = 0; // Ultrasonic Trigger
 constexpr uint8_t PIN_US_ECHO    = 1; // Ultrasonic Echo
 constexpr uint8_t PIN_VIBRATION  = 6; // Vibration Motor
 constexpr uint8_t PIN_BUZZER     = 7; // Piezo Buzzer (Active or Passive)
-constexpr uint8_t PIN_BUTTON     = 3; // Pushbutton
+constexpr uint8_t PIN_BUTTON     = 3; // Pushbutton (Optional - unpopulated on bench build)
 constexpr uint8_t PIN_LED_C3     = 8; // Onboard LED (Active LOW)
 
 constexpr uint8_t PIN_I2C_SDA    = 4;

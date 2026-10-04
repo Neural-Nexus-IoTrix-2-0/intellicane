@@ -21,8 +21,8 @@ This guide details the complete electrical connections, pin mapping, driver circ
 | | `(-) / Blue` | **GND** | — | 0V | Common ground |
 | **Audible Alarm (Buzzer)** | `(+) / SIG` | **GPIO 7** | 3.3V | 3.3V / 5V | Supports both Active & Passive buzzers |
 | | `(-) / GND` | **GND** | — | 0V | Common ground |
-| **Push Button (SOS)** | `SWITCH` | **GPIO 3** | 3.3V | — | Internal `INPUT_PULLUP` enabled (Active LOW) |
-| | `GND` | **GND** | — | 0V | Common ground |
+| **Push Button (SOS / Reset)** | `SWITCH` | **GPIO 3** | 3.3V | — | **Omitted in bench build** (Optional / unpopulated; alarm auto-resets when upright) |
+| | `GND` | **GND** | — | 0V | Common ground (when button is populated) |
 | **Status LED** | Onboard Blue | **GPIO 8** | 3.3V | 3.3V | Built-in on SuperMini PCB (**Active LOW**) |
 
 ---

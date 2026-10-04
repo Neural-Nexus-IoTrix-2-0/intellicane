@@ -16,11 +16,9 @@ flowchart TD
         MCU1["ESP32-C3 SuperMini Controller"]
         VIB["Haptic Vibration Motor (Direct GPIO 6 PWM)"]
         BUZZ["Emergency Buzzer (GPIO 7)"]
-        BTN["SOS / Reset Pushbutton (GPIO 3)"]
         
         US -->|Trig: GPIO 0, Echo: GPIO 1 (Direct)| MCU1
         IMU -->|I2C: SDA 4, SCL 5| MCU1
-        BTN -->|GPIO 3 Pullup| MCU1
         MCU1 -->|LEDC 200Hz PWM Duty| VIB
         MCU1 -->|Urgent Hazard Tone| BUZZ
     end
@@ -96,9 +94,9 @@ stateDiagram-v2
     FreefallSuspected --> ImpactDetected: Impact Spike > 2.5g within 400ms
     FreefallSuspected --> NormalUse: Timeout (No Impact)
     ImpactDetected --> ImmobilityCheck: Cane stationary after impact
-    ImmobilityCheck --> FallAlarmTriggered: Cane horizontal (>70 deg) for > 3.0s
+    ImmobilityCheck --> FallAlarmTriggered: Cane horizontal (>65 deg)
     ImmobilityCheck --> NormalUse: Motion resumed (False alarm)
-    FallAlarmTriggered --> NormalUse: User lifts cane or presses Reset
+    FallAlarmTriggered --> NormalUse: Cane restored upright (<30 deg) or Reset button
 ```
 
 ---

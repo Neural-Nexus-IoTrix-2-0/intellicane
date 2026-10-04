@@ -132,9 +132,10 @@ During early hardware assembly and local component procurement:
   - MPU6050: `SDA = GPIO 4`, `SCL = GPIO 5` (Hardware I2C at 400kHz)
   - Vibration Motor: `GPIO 6` (LEDC PWM at 200 Hz; driven directly from GPIO 6 on bench build; external 2N2222/MOSFET driver recommended for final production PCB)
   - Buzzer: `GPIO 7` (Universal Active/Passive driver)
-  - Push Button: `GPIO 3` (`INPUT_PULLUP`)
+  - Push Button: `GPIO 3` (`INPUT_PULLUP`; optional / unpopulated in bench build)
   - Status LED: `GPIO 8` (Onboard Blue LED, Active LOW)
 
 ### Consequences & Production Migration Path
 - **Direct GPIO Motor Drive**: The vibration motor operates within safe bench testing limits without requiring an external transistor circuit. For commercial production, a discrete driver stage will be populated to prevent inductive EMF spikes and maximize tactile amplitude.
 - **Direct Echo Signal**: The HC-SR04 Echo pin connects directly to GPIO 1 for bench testing. Production boards can implement a level shifter or adopt native 3.3V ultrasonic units (e.g. RCWL-1601).
+- **Omission of Pushbutton & Orientation Reset**: The physical tactile pushbutton is omitted from the initial bench assembly. The firmware cleanly auto-clears and rearms the fall alarm once the user lifts the cane upright ($< 30^\circ\text{ tilt}$). A physical button can be connected to GPIO 3 as an optional hardware input.

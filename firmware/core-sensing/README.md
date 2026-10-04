@@ -21,8 +21,8 @@ This project contains the production firmware for the safety-critical obstacle d
 | | `(-) / Ground` | **GND** | 0V | Common ground |
 | **Piezo Buzzer** | `(+) / Signal` | **GPIO 7** | 3.3V | Supports both Active & Passive 5V/3.3V buzzers |
 | | `(-) / GND` | **GND** | 0V | Common ground |
-| **Push Button** | Switch | **GPIO 3** | 3.3V Input | Internal `INPUT_PULLUP` enabled (Active LOW) |
-| | Return | **GND** | 0V | Ground |
+| **Push Button (Optional)** | Switch | **GPIO 3** | 3.3V Input | Optional / unpopulated on bench build (Internal pullup) |
+| | Return | **GND** | 0V | Ground (when button is populated) |
 | **Status Blue LED** | Indicator | **GPIO 8** | 3.3V | Built-in on ESP32-C3 SuperMini (**Active LOW**) |
 
 ---
@@ -43,7 +43,7 @@ This project contains the production firmware for the safety-critical obstacle d
 4. **Cane Dropped / Fall Alarm ($> 65^\circ$ Tilt or Impact Spike)**:
    - High-priority alternating siren on buzzer.
    - Rhythmic tactile pulsing on vibration motor.
-   - Pressing the **Green Pushbutton** on GPIO 3 clears the alarm.
+   - **Auto-Reset**: Restoring the cane upright ($< 30^\circ$) automatically clears and rearms the alarm (or pressing GPIO 3 button if installed).
 5. **Startup Self-Test**:
    - On boot, the cane sounds **2 confirmation beeps** and runs a **1-second 100% vibration burst** to verify hardware actuators.
 

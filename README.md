@@ -89,7 +89,7 @@ intelligent-cane/
 | **MPU6050 (6-Axis IMU)**| I2C Clock (`SCL`) | **GPIO 5** | 3.3V | Hardware I2C bus |
 | **Haptic Vibration Motor**| `(+) / Signal` | **GPIO 6** | 3.3V PWM | Direct GPIO drive on bench build (LEDC 200 Hz PWM) |
 | **Piezo Buzzer** | Audio Alarm (`+`) | **GPIO 7** | 3.3V | Universal driver for active & passive buzzers |
-| **Push Button (SOS)** | Alarm Reset / Emergency | **GPIO 3** | 3.3V Input | Internal `INPUT_PULLUP` enabled (Active LOW) |
+| **Push Button (Optional)** | Alarm Reset / Emergency | **GPIO 3** | 3.3V Input | Optional / unpopulated on bench build (alarm auto-clears when upright) |
 | **Status LED** | Visual Indicator | **GPIO 8** | 3.3V | Onboard SuperMini blue LED (**Active LOW**) |
 
 *Full driver schematics, production circuits (transistor driver & voltage divider), and power distribution are documented in [`hardware/wiring.md`](./hardware/wiring.md).*
@@ -170,6 +170,6 @@ Sample telemetry stream:
 ## 6. Budget & BOM Summary
 
 Tracked target prototype budget: **LKR 20,000 – 35,000**
-- **Phase 1 Prototype Cost**: **~LKR 9,500** (under LKR 10,000 ceiling)
-- **Total Multi-phase Estimated Cost**: **~LKR 19,350** (achieves full system under target ceiling)
+- **Phase 1 Prototype Cost**: **~LKR 9,450** (under LKR 10,000 ceiling)
+- **Total Multi-phase Estimated Cost**: **~LKR 19,300** (achieves full system under target ceiling)
 - See [`hardware/BOM.md`](./hardware/BOM.md) for individual component pricing and local supplier references.
