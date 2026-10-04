@@ -116,14 +116,23 @@ void setup() {
     digitalWrite(PIN_LED_C3, HIGH); // LED OFF
 
     // Initialize I2C and MPU6050
-    Serial.println("[Self-Test] 3. Initializing MPU6050 (SDA=4, SCL=5)...");
+    Serial.println("[Self-Test] 3. Initializing MPU6050 (SDA=GPIO 4, SCL=GPIO 5)...");
+    pinMode(PIN_I2C_SDA, INPUT_PULLUP);
+    pinMode(PIN_I2C_SCL, INPUT_PULLUP);
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    Wire.setClock(100000);
+    Wire.setTimeOut(50); // Prevent bus lockup
+
     if (mpu.begin(0x68, &Wire)) {
         mpuAvailable = true;
         mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-        Serial.println("[Self-Test] MPU6050 connected successfully!");
+        Serial.println("[Self-Test] MPU6050 connected successfully at Address 0x68!");
+    } else if (mpu.begin(0x69, &Wire)) {
+        mpuAvailable = true;
+        mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+        Serial.println("[Self-Test] MPU6050 connected successfully at Address 0x69!");
     } else {
-        Serial.println("[Self-Test] WARNING: MPU6050 not detected. Continuing...");
+        Serial.println("[Self-Test] WARNING: MPU6050 not detected at 0x68 or 0x69. Continuing in obstacle-only mode...");
     }
 
     Serial.println("\n[System] Self-test complete. Running live obstacle loop...\n");
