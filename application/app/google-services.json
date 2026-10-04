@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "858937383688",
+    "project_id": "intellicane-467ba",
+    "storage_bucket": "intellicane-467ba.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:858937383688:android:223e986b5bdcec1b272abd",
+        "android_client_info": {
+          "package_name": "com.example.intellicane"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwJyn4WbU5VhLh8pvWP2cYByRd2UYQVcg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
