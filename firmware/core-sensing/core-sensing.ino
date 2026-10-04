@@ -18,7 +18,67 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <esp_arduino_version.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 #include "ProximityFeedback.h"
+
+// BLE UUIDs for Intelligent Cane Telemetry Service
+#define BLE_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define BLE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+bool bleClientConnected = false;
+BLEServer *pBleServer = nullptr;
+BLECharacteristic *pTelemetryCharacteristic = nullptr;
+
+class CaneBLECallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) override {
+        bleClientConnected = true;
+        Serial.println("\n=======================================================");
+        Serial.printf("  [BLE] >>> CLIENT CONNECTED! (Active: %u) <<<\n", pServer->getConnectedCount());
+        Serial.println("=======================================================\n");
+    }
+
+    void onDisconnect(BLEServer* pServer) override {
+        bleClientConnected = false;
+        Serial.println("\n=======================================================");
+        Serial.println("  [BLE] <<< CLIENT DISCONNECTED! Restarting advertising... >>>");
+        Serial.println("=======================================================\n");
+        BLEDevice::startAdvertising();
+    }
+};
+
+void initBLE() {
+    Serial.println("[BLE] Initializing Bluetooth Low Energy (BLE)...");
+    BLEDevice::init("Intelligent-Cane");
+
+    String localMac = BLEDevice::getAddress().toString();
+    Serial.printf("[BLE] Device Name : Intelligent-Cane\n");
+    Serial.printf("[BLE] Hardware MAC: %s\n", localMac.c_str());
+
+    pBleServer = BLEDevice::createServer();
+    pBleServer->setCallbacks(new CaneBLECallbacks());
+
+    BLEService *pService = pBleServer->createService(BLE_SERVICE_UUID);
+    pTelemetryCharacteristic = pService->createCharacteristic(
+        BLE_CHARACTERISTIC_UUID,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+    pTelemetryCharacteristic->addDescriptor(new BLE2902());
+    pTelemetryCharacteristic->setValue("Cane Online");
+    pService->start();
+
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    pAdvertising->setMinPreferred(0x06);
+    pAdvertising->setMinPreferred(0x12);
+    BLEDevice::startAdvertising();
+
+    Serial.println("[BLE] Advertising started. Discoverable as 'Intelligent-Cane'.");
+}
 
 // ============================================================================
 // Pin Definitions (ESP32-C3 SuperMini)
@@ -156,6 +216,9 @@ void setup() {
         Serial.println("[System] WARNING: MPU6050 not detected at 0x68 or 0x69. Continuing in obstacle-only mode...");
     }
 
+    // Initialize BLE Server
+    initBLE();
+
     Serial.println("\n[System] Initialization complete. Running live obstacle loop...\n");
 }
 
@@ -228,12 +291,24 @@ void loop() {
 
         uint8_t vibPercent = (uint8_t)((currentMotorPwm / 255.0f) * 100.0f);
 
-        Serial.printf("[CANE-C3] Dist: %5.1f cm | Tilt: %4.1f° | Vib: %3d%% (PWM: %3d) | Buzzer: %s | Alert: %s\n",
+        Serial.printf("[CANE-C3] Dist: %5.1f cm | Tilt: %4.1f° | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %s | Alert: %s\n",
                       distanceCm,
                       tiltAngleDeg,
                       vibPercent,
                       currentMotorPwm,
                       buzzerState ? "ON" : "OFF",
+                      bleClientConnected ? "CONNECTED" : "ADVERTISING",
                       alertMsg);
+
+        // Send live telemetry to connected BLE client
+        if (bleClientConnected && pTelemetryCharacteristic != nullptr) {
+            char bleMsg[64];
+            snprintf(bleMsg, sizeof(bleMsg), "Dist:%.1f,Tilt:%.1f,Alert:%s",
+                     isfinite(distanceCm) ? distanceCm : -1.0f,
+                     tiltAngleDeg,
+                     alertMsg);
+            pTelemetryCharacteristic->setValue(bleMsg);
+            pTelemetryCharacteristic->notify();
+        }
     }
 }
