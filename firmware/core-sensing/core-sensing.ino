@@ -104,6 +104,10 @@ BeepEnvelope beepEnvelope;
 
 Adafruit_MPU6050 mpu;
 bool mpuAvailable = false;
+uint8_t mpuAddress = 0;
+bool mpuUsingDirectI2C = false;
+uint8_t mpuFailCount = 0;
+uint32_t lastMpuRetryMs = 0;
 
 float distanceCm = NAN;
 float tiltAngleDeg = 0.0f;
@@ -114,6 +118,163 @@ uint8_t currentMotorPwm = 0;
 uint32_t lastSensorMs = 0;
 uint32_t lastTelemMs  = 0;
 bool buzzerState = false;
+
+uint8_t readReg8(uint8_t addr, uint8_t reg) {
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return 0xFF;
+    if (Wire.requestFrom((uint8_t)addr, (uint8_t)1) != 1) return 0xFF;
+    return Wire.read();
+}
+
+bool writeReg8(uint8_t addr, uint8_t reg, uint8_t val) {
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    Wire.write(val);
+    return (Wire.endTransmission() == 0);
+}
+
+uint8_t activeSda = PIN_I2C_SDA; // default 4
+uint8_t activeScl = PIN_I2C_SCL; // default 5
+
+bool probePinPair(uint8_t sda, uint8_t scl) {
+    Wire.end();
+    pinMode(sda, INPUT_PULLUP);
+    pinMode(scl, INPUT_PULLUP);
+    Wire.begin(sda, scl);
+    Wire.setClock(100000);
+    Wire.setTimeOut(30);
+
+    for (uint8_t addr = 0x68; addr <= 0x69; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            activeSda = sda;
+            activeScl = scl;
+            return true;
+        }
+    }
+    return false;
+}
+
+void autoDetectI2CPins() {
+    if (probePinPair(activeSda, activeScl)) return;
+    if (probePinPair(5, 4)) {
+        Serial.println("[I2C] Auto-detect: Found MPU on swapped pins (SDA=GPIO 5, SCL=GPIO 4)!");
+        return;
+    }
+    if (probePinPair(8, 9)) {
+        Serial.println("[I2C] Auto-detect: Found MPU on hardware default pins (SDA=GPIO 8, SCL=GPIO 9)!");
+        return;
+    }
+    if (probePinPair(9, 8)) {
+        Serial.println("[I2C] Auto-detect: Found MPU on hardware default pins (SDA=GPIO 9, SCL=GPIO 8)!");
+        return;
+    }
+    if (probePinPair(2, 3)) {
+        Serial.println("[I2C] Auto-detect: Found MPU on pins (SDA=GPIO 2, SCL=GPIO 3)!");
+        return;
+    }
+    if (probePinPair(20, 21)) {
+        Serial.println("[I2C] Auto-detect: Found MPU on pins (SDA=GPIO 20, SCL=GPIO 21)!");
+        return;
+    }
+    probePinPair(PIN_I2C_SDA, PIN_I2C_SCL);
+}
+
+void scanI2C() {
+    autoDetectI2CPins();
+    Serial.printf("[I2C] Scanning I2C bus (SDA=GPIO %d, SCL=GPIO %d)...\n", activeSda, activeScl);
+    uint8_t count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            uint8_t who = readReg8(addr, 0x75);
+            Serial.printf("[I2C] -> Found device at 0x%02X (WHO_AM_I = 0x%02X)\n", addr, who);
+            count++;
+        }
+    }
+    if (count == 0) {
+        Serial.println("[I2C] -> WARNING: No I2C devices found on tested pins!");
+        Serial.println("       1. Check GY-521 LED: Is the small red power LED on the sensor lit?");
+        Serial.println("       2. Power: Connect GY-521 VCC -> 5V on ESP32-C3 (3.3V can cause undervoltage).");
+        Serial.println("       3. Ground: Connect GY-521 GND -> GND.");
+        Serial.println("       4. Data: Connect GY-521 SDA -> GPIO 4, SCL -> GPIO 5.");
+        Serial.println("       5. Address: Connect GY-521 AD0 -> GND (sets address 0x68).");
+    }
+}
+
+bool tryInitMPU(bool verbose = true) {
+    autoDetectI2CPins();
+    uint8_t targetAddr = 0;
+    Wire.beginTransmission(0x68);
+    if (Wire.endTransmission() == 0) targetAddr = 0x68;
+    else {
+        Wire.beginTransmission(0x69);
+        if (Wire.endTransmission() == 0) targetAddr = 0x69;
+    }
+
+    if (targetAddr == 0) {
+        mpuAvailable = false;
+        return false;
+    }
+
+    mpuAddress = targetAddr;
+    uint8_t who = readReg8(targetAddr, 0x75);
+    if (verbose) {
+        Serial.printf("[MPU] Found chip at 0x%02X (WHO_AM_I = 0x%02X)\n", targetAddr, who);
+    }
+
+    // Try Adafruit driver first
+    if (mpu.begin(targetAddr, &Wire)) {
+        mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+        mpuAvailable = true;
+        mpuUsingDirectI2C = false;
+        if (verbose) Serial.println("[MPU] Initialized via Adafruit MPU6050 driver!");
+        return true;
+    }
+
+    // Direct register fallback (supports MPU-6500, MPU-9250, and clone ICs rejected by Adafruit)
+    if (verbose) Serial.println("[MPU] Adafruit driver rejected ID. Initializing direct register driver...");
+    writeReg8(targetAddr, 0x6B, 0x00); // Wake up chip (clear SLEEP bit)
+    delay(10);
+    writeReg8(targetAddr, 0x1C, 0x10); // Accel range +/- 8g
+    delay(10);
+
+    mpuAvailable = true;
+    mpuUsingDirectI2C = true;
+    if (verbose) Serial.println("[MPU] Direct register driver active and ready!");
+    return true;
+}
+
+bool readMPUAccel(float &ax, float &ay, float &az) {
+    if (!mpuAvailable) return false;
+
+    if (!mpuUsingDirectI2C) {
+        sensors_event_t a, g, temp;
+        if (mpu.getEvent(&a, &g, &temp)) {
+            ax = a.acceleration.x;
+            ay = a.acceleration.y;
+            az = a.acceleration.z;
+            return true;
+        }
+        return false;
+    }
+
+    Wire.beginTransmission(mpuAddress);
+    Wire.write(0x3B); // ACCEL_XOUT_H
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom((uint8_t)mpuAddress, (uint8_t)6) != 6) return false;
+
+    int16_t rx = (int16_t)((Wire.read() << 8) | Wire.read());
+    int16_t ry = (int16_t)((Wire.read() << 8) | Wire.read());
+    int16_t rz = (int16_t)((Wire.read() << 8) | Wire.read());
+
+    const float scale = 9.80665f / 4096.0f;
+    ax = (float)rx * scale;
+    ay = (float)ry * scale;
+    az = (float)rz * scale;
+    return true;
+}
 
 void setMotorPwm(uint8_t duty) {
     uint8_t output = motorOutputDuty(duty, MOTOR_ACTIVE_LOW);
@@ -194,26 +355,18 @@ void setup() {
 #endif
     setMotorPwm(0);
     setBuzzer(false);
-    // No startup actuator burst: vibration is exclusively distance-controlled.
 
-    // Initialize I2C and MPU6050
-    Serial.println("[System] Initializing MPU6050 (SDA=GPIO 4, SCL=GPIO 5)...");
+    // Initialize I2C bus
     pinMode(PIN_I2C_SDA, INPUT_PULLUP);
     pinMode(PIN_I2C_SCL, INPUT_PULLUP);
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Wire.setClock(100000);
     Wire.setTimeOut(50); // Prevent bus lockup
 
-    if (mpu.begin(0x68, &Wire)) {
-        mpuAvailable = true;
-        mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-        Serial.println("[System] MPU6050 connected successfully at Address 0x68!");
-    } else if (mpu.begin(0x69, &Wire)) {
-        mpuAvailable = true;
-        mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-        Serial.println("[System] MPU6050 connected successfully at Address 0x69!");
-    } else {
-        Serial.println("[System] WARNING: MPU6050 not detected at 0x68 or 0x69. Continuing in obstacle-only mode...");
+    // Perform diagnostic I2C bus scan and initialize MPU
+    scanI2C();
+    if (!tryInitMPU(true)) {
+        Serial.println("[System] WARNING: MPU6050 not detected. Auto-reconnect active in background...");
     }
 
     // Initialize BLE Server
@@ -238,17 +391,16 @@ void loop() {
             Serial.println("[Button] Alarm cleared.");
         }
 
-        // MPU6050 Read
+        // MPU Read
         if (mpuAvailable) {
-            sensors_event_t a, g, temp;
-            if (mpu.getEvent(&a, &g, &temp)) {
-                float rawMag = sqrtf(a.acceleration.x * a.acceleration.x +
-                                     a.acceleration.y * a.acceleration.y +
-                                     a.acceleration.z * a.acceleration.z);
+            float ax = 0, ay = 0, az = 0;
+            if (readMPUAccel(ax, ay, az)) {
+                mpuFailCount = 0;
+                float rawMag = sqrtf(ax * ax + ay * ay + az * az);
                 gMagnitude = rawMag / 9.80665f;
 
-                if (rawMag > 0.1f) {
-                    float cosTilt = fabsf(a.acceleration.z) / rawMag;
+                if (rawMag > 0.5f) {
+                    float cosTilt = fabsf(az) / rawMag;
                     if (cosTilt > 1.0f) cosTilt = 1.0f;
                     tiltAngleDeg = acosf(cosTilt) * 180.0f / (float)M_PI;
                 }
@@ -258,7 +410,21 @@ void loop() {
                 } else if (tiltAngleDeg < 30.0f) {
                     fallAlert = false;
                 }
+            } else {
+                mpuFailCount++;
+                if (mpuFailCount >= 10) {
+                    mpuAvailable = false;
+                    mpuFailCount = 0;
+                }
             }
+        }
+    }
+
+    // Background auto-reconnect if MPU was disconnected or unready at boot
+    if (!mpuAvailable && (now - lastMpuRetryMs >= 2000)) {
+        lastMpuRetryMs = now;
+        if (tryInitMPU(false)) {
+            Serial.println("\n[MPU] >>> MPU6050 RECONNECTED SUCCESSFULLY! <<<\n");
         }
     }
 
@@ -291,9 +457,16 @@ void loop() {
 
         uint8_t vibPercent = (uint8_t)((currentMotorPwm / 255.0f) * 100.0f);
 
-        Serial.printf("[CANE-C3] Dist: %5.1f cm | Tilt: %4.1f° | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %s | Alert: %s\n",
+        char tiltBuf[16];
+        if (mpuAvailable) {
+            snprintf(tiltBuf, sizeof(tiltBuf), "%5.1f°", tiltAngleDeg);
+        } else {
+            snprintf(tiltBuf, sizeof(tiltBuf), "NO_MPU");
+        }
+
+        Serial.printf("[CANE-C3] Dist: %5.1f cm | Tilt: %s | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %s | Alert: %s\n",
                       distanceCm,
-                      tiltAngleDeg,
+                      tiltBuf,
                       vibPercent,
                       currentMotorPwm,
                       buzzerState ? "ON" : "OFF",
@@ -303,9 +476,9 @@ void loop() {
         // Send live telemetry to connected BLE client
         if (bleClientConnected && pTelemetryCharacteristic != nullptr) {
             char bleMsg[64];
-            snprintf(bleMsg, sizeof(bleMsg), "Dist:%.1f,Tilt:%.1f,Alert:%s",
+            snprintf(bleMsg, sizeof(bleMsg), "Dist:%.1f,Tilt:%s,Alert:%s",
                      isfinite(distanceCm) ? distanceCm : -1.0f,
-                     tiltAngleDeg,
+                     tiltBuf,
                      alertMsg);
             pTelemetryCharacteristic->setValue(bleMsg);
             pTelemetryCharacteristic->notify();
