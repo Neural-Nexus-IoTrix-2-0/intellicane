@@ -70,14 +70,22 @@ intelligent-cane/
 │   ├── BOM.md                      # Component list and LKR budget tracking
 │   └── README.md
 ├── docs/                            # Architectural specifications & decision logs
+│   ├── IoTrix_SemiFinal_Technical_Progress_Sheet.md # Official 1-page progress sheet (Oct 5 submission)
+│   ├── IoTrix_SemiFinal_Defense_and_Demo_Guide.md   # 12-min presentation & Q&A defense guide
 │   ├── architecture.md             # System architecture & block diagrams
 │   ├── decisions.md                # Architecture Decision Records (ADRs)
-│   ├── PROGRESS_REPORT.md          # 1-page executive technical progress report
+│   ├── PROGRESS_REPORT.md          # Executive technical progress report
 │   └── README.md
 ├── simulation/                      # Wokwi simulation workspace
+├── tests/                           # Host-runnable C++ unit tests
 ├── .gitignore
 └── README.md
 ```
+
+> **IoTrix 2.0 Semi-Final Quick Links:**
+> - [**Semi-Final Technical Progress Sheet**](./docs/IoTrix_SemiFinal_Technical_Progress_Sheet.md) *(Section 5 Rubric Template)*
+> - [**12-Minute Presentation & Technical Defense Guide**](./docs/IoTrix_SemiFinal_Defense_and_Demo_Guide.md) *(Pitch script, live demo & answers to judges' 8 defense questions)*
+> - [**Official Circuit Schematic Diagram**](./hardware/circuit_diagram.png) *(5V rail, 3.3V logic, $1\text{k}\Omega / 1.8\text{k}\Omega$ echo divider)*
 
 ---
 
