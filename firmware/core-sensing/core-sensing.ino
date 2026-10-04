@@ -17,6 +17,8 @@
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <esp_arduino_version.h>
+#include "ProximityFeedback.h"
 
 // ============================================================================
 // Pin Definitions (ESP32-C3 SuperMini)
@@ -34,11 +36,16 @@ constexpr uint8_t PIN_I2C_SCL    = 5;
 // Motor Polarity Configuration
 // Set to true if your 3-pin vibration module is Active-LOW (vibrates when input is LOW)
 constexpr bool MOTOR_ACTIVE_LOW  = false;
+// Active buzzer: DC on/off. Passive piezo: dedicated audio-frequency PWM.
+constexpr bool BUZZER_IS_PASSIVE = false;
+constexpr uint8_t MOTOR_CHANNEL = 0;
+constexpr uint8_t BUZZER_CHANNEL = 2; // Separate timer from motor on ESP32-C3.
+BeepEnvelope beepEnvelope;
 
 Adafruit_MPU6050 mpu;
 bool mpuAvailable = false;
 
-float distanceCm = 200.0f;
+float distanceCm = NAN;
 float tiltAngleDeg = 0.0f;
 float gMagnitude = 1.0f;
 bool fallAlert = false;
@@ -46,34 +53,35 @@ uint8_t currentMotorPwm = 0;
 
 uint32_t lastSensorMs = 0;
 uint32_t lastTelemMs  = 0;
-uint32_t lastBuzzerMs = 0;
 bool buzzerState = false;
 
-// ============================================================================
-// Vibration Motor Driver
-// ============================================================================
 void setMotorPwm(uint8_t duty) {
-    uint8_t output = MOTOR_ACTIVE_LOW ? (255 - duty) : duty;
+    uint8_t output = motorOutputDuty(duty, MOTOR_ACTIVE_LOW);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
     ledcWrite(PIN_VIBRATION, output);
+#else
+    ledcWrite(MOTOR_CHANNEL, output);
+#endif
 }
 
-// ============================================================================
-// Universal Buzzer Driver (Works on BOTH Active and Passive Buzzers)
-// ============================================================================
-void setBuzzer(bool state) {
-    if (state) {
-        // DC HIGH triggers Active Buzzers; also generates tone for Passive
-        digitalWrite(PIN_BUZZER, HIGH);
+void setBuzzer(bool state, uint16_t frequencyHz = 2000) {
+    static bool initialized = false;
+    static bool previousState = false;
+    static uint16_t previousFrequency = 0;
+    if (initialized && state == previousState &&
+        (!BUZZER_IS_PASSIVE || !state || frequencyHz == previousFrequency)) return;
+    initialized = true;
+    previousState = state;
+    previousFrequency = frequencyHz;
+    if (BUZZER_IS_PASSIVE) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+        ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
+#else
+        ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
+#endif
     } else {
-        digitalWrite(PIN_BUZZER, LOW);
+        digitalWrite(PIN_BUZZER, state ? HIGH : LOW);
     }
-}
-
-// Generate sound pulse (duration in ms)
-void beepBuzzer(uint16_t durationMs) {
-    digitalWrite(PIN_BUZZER, HIGH);
-    delay(durationMs);
-    digitalWrite(PIN_BUZZER, LOW);
 }
 
 // Measure HC-SR04 distance
@@ -85,11 +93,15 @@ float readDistanceCm() {
     digitalWrite(PIN_US_TRIG, LOW);
 
     unsigned long durationUs = pulseIn(PIN_US_ECHO, HIGH, 26000);
-    if (durationUs == 0) return 400.0f;
+    if (durationUs == 0) return NAN; // Unknown range, not a measured clear path.
     return (float)durationUs * 0.0343f / 2.0f;
 }
 
 void setup() {
+    // Establish the module's OFF level before boot delays.
+    digitalWrite(PIN_VIBRATION, MOTOR_ACTIVE_LOW ? HIGH : LOW);
+    pinMode(PIN_VIBRATION, OUTPUT);
+    digitalWrite(PIN_VIBRATION, MOTOR_ACTIVE_LOW ? HIGH : LOW);
     Serial.begin(115200);
     delay(500);
 
@@ -108,27 +120,24 @@ void setup() {
     digitalWrite(PIN_BUZZER, LOW);
     digitalWrite(PIN_LED_C3, HIGH); // OFF
 
-    // Initialize Motor PWM at 200 Hz (Optimal for DC brushed vibration motors)
-    ledcAttach(PIN_VIBRATION, 200, 8);
+    // Dedicated channels keep passive-buzzer pitch changes away from motor PWM.
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcAttachChannel(PIN_VIBRATION, 200, 8, MOTOR_CHANNEL);
+    if (BUZZER_IS_PASSIVE) ledcAttachChannel(PIN_BUZZER, 2000, 8, BUZZER_CHANNEL);
+#else
+    ledcSetup(MOTOR_CHANNEL, 200, 8);
+    ledcAttachPin(PIN_VIBRATION, MOTOR_CHANNEL);
+    if (BUZZER_IS_PASSIVE) {
+        ledcSetup(BUZZER_CHANNEL, 2000, 8);
+        ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
+    }
+#endif
     setMotorPwm(0);
-
-    // ========================================================================
-    // STARTUP SELF-TEST: Confirms Buzzer, Motor, and LED immediately
-    // ========================================================================
-    Serial.println("[Self-Test] 1. Testing Buzzer (2 Beeps)...");
-    beepBuzzer(150);
-    delay(100);
-    beepBuzzer(150);
-
-    Serial.println("[Self-Test] 2. Testing Vibration Motor (1-Second Full Spin)...");
-    digitalWrite(PIN_LED_C3, LOW); // LED ON
-    setMotorPwm(255); // 100% full spin
-    delay(1000);
-    setMotorPwm(0);   // Motor OFF
-    digitalWrite(PIN_LED_C3, HIGH); // LED OFF
+    setBuzzer(false);
+    // No startup actuator burst: vibration is exclusively distance-controlled.
 
     // Initialize I2C and MPU6050
-    Serial.println("[Self-Test] 3. Initializing MPU6050 (SDA=GPIO 4, SCL=GPIO 5)...");
+    Serial.println("[System] Initializing MPU6050 (SDA=GPIO 4, SCL=GPIO 5)...");
     pinMode(PIN_I2C_SDA, INPUT_PULLUP);
     pinMode(PIN_I2C_SCL, INPUT_PULLUP);
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
@@ -138,16 +147,16 @@ void setup() {
     if (mpu.begin(0x68, &Wire)) {
         mpuAvailable = true;
         mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-        Serial.println("[Self-Test] MPU6050 connected successfully at Address 0x68!");
+        Serial.println("[System] MPU6050 connected successfully at Address 0x68!");
     } else if (mpu.begin(0x69, &Wire)) {
         mpuAvailable = true;
         mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-        Serial.println("[Self-Test] MPU6050 connected successfully at Address 0x69!");
+        Serial.println("[System] MPU6050 connected successfully at Address 0x69!");
     } else {
-        Serial.println("[Self-Test] WARNING: MPU6050 not detected at 0x68 or 0x69. Continuing in obstacle-only mode...");
+        Serial.println("[System] WARNING: MPU6050 not detected at 0x68 or 0x69. Continuing in obstacle-only mode...");
     }
 
-    Serial.println("\n[System] Self-test complete. Running live obstacle loop...\n");
+    Serial.println("\n[System] Initialization complete. Running live obstacle loop...\n");
 }
 
 void loop() {
@@ -190,51 +199,19 @@ void loop() {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // 2. Vibration Motor Intensity Mapping
-    // ------------------------------------------------------------------------
-    // > 100cm: Clear (OFF)
-    // 40cm - 100cm: Proportional (PWM 100 to 255)
-    // < 40cm: Danger (100% full vibration)
-    if (fallAlert) {
-        // Fall alert: Rhythmic burst 200ms ON / 200ms OFF
-        currentMotorPwm = (now % 400 < 200) ? 255 : 0;
-    } else if (distanceCm > 120.0f) {
-        currentMotorPwm = 0; // Clear zone: OFF
-    } else if (distanceCm <= 40.0f) {
-        currentMotorPwm = 255; // Close hazard: FULL 100%
-    } else {
-        // Linear ramp from 120cm (PWM 100) down to 40cm (PWM 255)
-        float progress = (120.0f - distanceCm) / (120.0f - 40.0f);
-        currentMotorPwm = (uint8_t)(100 + progress * (255 - 100));
-    }
-
+    // Refresh time after blocking sensor reads.
+    now = millis();
+    const ProximityFeedback feedback = feedbackForDistance(distanceCm);
+    currentMotorPwm = feedback.motorDuty;
     setMotorPwm(currentMotorPwm);
 
-    // ------------------------------------------------------------------------
-    // 3. Buzzer Alarm & Status LED
-    // ------------------------------------------------------------------------
-    if (fallAlert) {
-        // Alternating siren for fall
-        if (now - lastBuzzerMs >= 200) {
-            lastBuzzerMs = now;
-            buzzerState = !buzzerState;
-            setBuzzer(buzzerState);
-            digitalWrite(PIN_LED_C3, buzzerState ? LOW : HIGH);
-        }
-    } else if (distanceCm <= 30.0f) {
-        // Urgent beeping for close obstacle (< 30cm)
-        if (now - lastBuzzerMs >= 100) {
-            lastBuzzerMs = now;
-            buzzerState = !buzzerState;
-            setBuzzer(buzzerState);
-            digitalWrite(PIN_LED_C3, buzzerState ? LOW : HIGH);
-        }
-    } else {
-        setBuzzer(false);
-        // Visual indicator of motor activity
-        digitalWrite(PIN_LED_C3, (currentMotorPwm > 0) ? LOW : HIGH);
-    }
+    // Fall detection retains its audible warning, but cannot override motor distance gating.
+    uint8_t soundMode = fallAlert ? 2 : (feedback.motorDuty > 0 ? 1 : 0);
+    buzzerState = beepEnvelope.update(now,
+        fallAlert ? 200 : feedback.beepOnMs,
+        fallAlert ? 200 : feedback.beepOffMs, soundMode);
+    setBuzzer(buzzerState, fallAlert ? 2400 : feedback.toneHz);
+    digitalWrite(PIN_LED_C3, (currentMotorPwm > 0 || buzzerState) ? LOW : HIGH);
 
     // ------------------------------------------------------------------------
     // 4. Telemetry Stream every 250ms
@@ -244,9 +221,10 @@ void loop() {
 
         const char* alertMsg = "CLEAR";
         if (fallAlert) alertMsg = "FALL ALARM!";
-        else if (distanceCm <= 30.0f) alertMsg = "CRITICAL HAZARD!";
-        else if (distanceCm <= 70.0f) alertMsg = "WARNING";
-        else if (distanceCm <= 120.0f) alertMsg = "CAUTION";
+        else if (!isfinite(distanceCm)) alertMsg = "NO ECHO";
+        else if (distanceCm <= 10.0f) alertMsg = "CRITICAL HAZARD!";
+        else if (distanceCm <= 30.0f) alertMsg = "WARNING";
+        else if (distanceCm < 60.0f) alertMsg = "CAUTION";
 
         uint8_t vibPercent = (uint8_t)((currentMotorPwm / 255.0f) * 100.0f);
 
@@ -255,7 +233,7 @@ void loop() {
                       tiltAngleDeg,
                       vibPercent,
                       currentMotorPwm,
-                      (distanceCm <= 30.0f || fallAlert) ? "BEEPING" : "MUTED",
+                      buzzerState ? "ON" : "OFF",
                       alertMsg);
     }
 }

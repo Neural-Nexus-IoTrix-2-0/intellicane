@@ -30,23 +30,48 @@ This project contains the production firmware for the safety-critical obstacle d
 
 ## Operating Logic & Feedback
 
-1. **Clear Path ($> 120\text{ cm}$)**:
-   - Vibration Motor: **OFF** (0% PWM)
-   - Buzzer: **Silent**
-   - Blue LED: **OFF** (HIGH)
-2. **Caution & Warning Zone ($30\text{ cm} - 120\text{ cm}$)**:
-   - Proportional vibration intensity ramps smoothly from 35% up to 100% as the obstacle nears.
-   - Status LED reflects vibration activity.
-3. **Critical Hazard Proximity ($< 30\text{ cm}$)**:
-   - Vibration Motor: **100% Full Spin** (PWM 255)
-   - Buzzer: **Rapid Urgent Beeping** (100ms ON / 100ms OFF)
-   - Status LED: **Rapid Flashing**
-4. **Cane Dropped / Fall Alarm ($> 65^\circ$ Tilt or Impact Spike)**:
-   - High-priority alternating siren on buzzer.
-   - Rhythmic tactile pulsing on vibration motor.
-   - **Auto-Reset**: Restoring the cane upright ($< 30^\circ$) automatically clears and rearms the alarm (or pressing GPIO 3 button if installed).
-5. **Startup Self-Test**:
-   - On boot, the cane sounds **2 confirmation beeps** and runs a **1-second 100% vibration burst** to verify hardware actuators.
+The motor responds only to a valid distance **strictly below 60 cm**. Tilt/fall
+state never drives the motor, and boot does not run an actuator test burst.
+
+| Distance | Motor PWM | Obstacle buzzer |
+|---|---|---|
+| 60 cm or farther | OFF | Silent |
+| Just below 60 cm | About 39% | Short, widely spaced beeps |
+| 40 cm | About 63% | 116 ms ON / 460 ms OFF |
+| 20 cm | About 87% | 172 ms ON / 180 ms OFF |
+| 10 cm or closer | 100% | 200 ms ON / 40 ms OFF |
+| Missing echo / invalid reading | OFF | Silent; serial reports `NO ECHO` |
+
+A missing echo means the distance is unknown, not a verified clear path.
+The existing fall detector retains its separate 200 ms ON / 200 ms OFF audible
+alarm, including beyond 60 cm. Its detection/reset behavior is otherwise unchanged.
+
+### Match the actual modules before flashing
+
+- `MOTOR_ACTIVE_LOW = false` retains the existing active-HIGH module setting.
+  If serial shows `PWM: 0` while the module still vibrates, verify its polarity
+  and wiring; set this to `true` for an active-LOW input. Software cannot detect
+  the module polarity. Use IN on GPIO 6 with a common ground.
+- `BUZZER_IS_PASSIVE = false` selects an active buzzer. Its beep rate and ON-time
+  increase with proximity; its instantaneous loudness/pitch is hardware-fixed.
+  Set this to `true` for a passive piezo: its tone additionally rises from
+  1200 Hz toward 2800 Hz. This is an urgency ramp, not calibrated volume control.
+- Motor and passive-buzzer PWM use separate timers. Arduino-ESP32 2.x and 3.x
+  LEDC APIs are handled explicitly.
+
+### Verification
+
+Host-side logic tests (requires a C++11 compiler), from the repository root:
+
+```sh
+g++ -std=c++11 -Wall -Wextra -pedantic tests/proximity_feedback_test.cpp -o proximity_feedback_test
+./proximity_feedback_test
+```
+
+After flashing, check 80, 60, 59, 40, 20 and 10 cm. Verify no motor output at
+60 cm or farther even when tilted. Check motor polarity against serial PWM,
+missing echoes, beep re-entry and the configured buzzer type on the real hardware.
+Host tests do not verify electrical wiring, physical motor response or sound level.
 
 ---
 
@@ -78,6 +103,6 @@ pio run --target upload
 
 ## Serial Telemetry Output (115200 Baud)
 ```text
-[CANE-C3] Dist:  88.8 cm | Tilt:  0.0° | Vib:  64% (PWM: 165) | Buzzer: MUTED   | Alert: CLEAR
-[CANE-C3] Dist:   5.5 cm | Tilt:  0.0° | Vib: 100% (PWM: 255) | Buzzer: BEEPING | Alert: CRITICAL HAZARD!
+[CANE-C3] Dist:  88.8 cm | Tilt:  0.0° | Vib:   0% (PWM:   0) | Buzzer: OFF   | Alert: CLEAR
+[CANE-C3] Dist:   5.5 cm | Tilt:  0.0° | Vib: 100% (PWM: 255) | Buzzer: ON | Alert: CRITICAL HAZARD!
 ```
