@@ -10,9 +10,9 @@ This directory contains embedded software running across the cane's microcontrol
   - Handles real-time haptic vibration motor PWM feedback, buzzer alarm, and fall detection.
   - Fully offline, deterministic, zero network dependencies.
 
-- **`gps-tracking/` (Phase 2)**:
-  - GPS NMEA parsing (NEO-6M / NEO-8M) and telemetry uplink (Wi-Fi HTTP/MQTT or LoRa backup).
-  - Transmits location and health/emergency pings to family dashboard.
+- **`gps-tracking/` (Phase 2 — BLE Geolocation & Telemetry)**:
+  - Smartphone BLE geolocation bridging (per ADR-007) and telemetry uplink (Wi-Fi/Cellular via companion app).
+  - Transmits location and health/emergency pings to family dashboard without requiring a standalone GPS module on the cane.
 
 - **`cam-module/` (Phase 3)**:
   - Dedicated ESP32-CAM board sketch.

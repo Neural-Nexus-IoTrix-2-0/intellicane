@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary & Objective
 
-The **Intelligent Cane** is an offline-safe, multimodal mobility assistant engineered for visually impaired individuals. It integrates deterministic physical obstacle detection, ground drop-off protection, emergency fall detection, and an expansion path for GPS tracking and AI scene narration. The design prioritizes **100% offline autonomy**, sub-50 ms safety-critical reflex time, low power consumption, and affordability.
+The **Intelligent Cane** is an offline-safe, multimodal mobility assistant engineered for visually impaired individuals. It integrates deterministic physical obstacle detection, ground drop-off protection, emergency fall detection, and an expansion path for smartphone-bridged BLE location tracking and AI scene narration. The design prioritizes **100% offline safety autonomy**, sub-50 ms safety-critical reflex time, low power consumption, and affordability.
 
 ---
 
@@ -57,8 +57,8 @@ All core sensing, actuation, and safety-critical embedded features for Phase 1 a
 
 ## 5. Budget Status & Next Steps
 
-* **Budget Tracking:** Current Phase 1 prototype cost stands at **~LKR 9,550**, well within the LKR 10,000 Phase 1 cap and the overall project budget of LKR 20,000–35,000.
+* **Budget Tracking:** Actual Phase 1 bench prototype expenditure was only **Rs. 2,800 (LKR)** — achieving a remarkable cost reduction compared to typical commercial canes, well beneath the LKR 10,000 Phase 1 cap and the overall project budget ceiling of LKR 20,000–35,000.
 * **Next Steps (Phase 2 & Phase 3 Roadmap):**
-  1. **Phase 2 (Milestone 4):** Integrate u-blox NEO-6M/8M GPS receiver and publish telemetry to caregiver web dashboard.
-  2. **Phase 3 (Milestone 5):** Interface ESP32-CAM module with cloud/companion VLM service for scene description.
+  1. **Phase 2 (Milestone 4 — Geolocation & Telemetry):** Utilize the active BLE link to bridge with the user's companion smartphone, acquiring real-time A-GPS coordinates and publishing telemetry/fall alerts to the caregiver web dashboard (eliminating the need, power, and cost of a standalone GPS hardware module).
+  2. **Phase 3 (Milestone 5 — Visual AI):** Interface ESP32-CAM module with cloud/companion VLM service for on-demand scene description and text reading.
   3. **Mechanical Assembly:** 3D-print ergonomic cane handle and modular sensor enclosure.

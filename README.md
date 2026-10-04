@@ -21,14 +21,14 @@ The Intelligent Cane is an assistive IoT device designed to provide proactive na
          ▼                                                ▼                                        ▼
 ┌─────────────────────────────────┐      ┌─────────────────────────────────┐      ┌─────────────────────────────────┐
 │           Phase 1               │      │            Phase 2              │      │            Phase 3              │
-│       Core Sensing              │      │         GPS Tracking            │      │        AI Voice Layer           │
+│       Core Sensing              │      │    BLE Geolocation & Telemetry  │      │        AI Voice Layer           │
 ├─────────────────────────────────┤      ├─────────────────────────────────┤      ├─────────────────────────────────┤
-│ • ESP32-C3 SuperMini (RISC-V)   │      │ • u-blox NEO-6M / NEO-8M GPS    │      │ • Dedicated ESP32-CAM Board     │
-│ • HC-SR04 Ultrasonic Sensor     │      │ • Wi-Fi Telemetry Uplink        │      │ • Cloud/Phone VLM (Gemini/GPT4o)│
-│ • MPU6050 6-Axis Tilt & Fall    │      │ • Optional LoRa Off-Grid Uplink │      │ • Cloud Neural Text-to-Speech   │
+│ • ESP32-C3 SuperMini (RISC-V)   │      │ • Smartphone BLE A-GPS Bridge   │      │ • Dedicated ESP32-CAM Board     │
+│ • HC-SR04 Ultrasonic Sensor     │      │ • Low-power BLE 5.0 Broadcast   │      │ • Cloud/Phone VLM (Gemini/GPT4o)│
+│ • MPU6050 6-Axis Tilt & Fall    │      │ • Zero Extra Hardware Cost      │      │ • Cloud Neural Text-to-Speech   │
 │ • Proportional Haptic PWM       │      │ • Family Web Dashboard          │      │ • Spoken Ambient Scene Q&A      │
 │ • Piezo Alarm & Fall Siren      │      │ • Emergency Geolocation Push    │      │ • Off-device heavy computation  │
-│ • 100% Offline & Deterministic  │      │                                 │      │                                 │
+│ • 100% Offline & Deterministic  │      │ • Works indoors & outdoors      │      │                                 │
 └─────────────────────────────────┘      └─────────────────────────────────┘      └─────────────────────────────────┘
 ```
 
@@ -39,10 +39,10 @@ The Intelligent Cane is an assistive IoT device designed to provide proactive na
    - **Fall & Tilt Sensing**: MPU6050 IMU detects sudden drops, impact spikes, and extended immobility on the floor.
    - **Ultra-Compact Form Factor**: Driven by the stamp-sized ESP32-C3 SuperMini with native USB-C.
 
-2. **Location Sharing & Telemetry (Phase 2)**:
-   - Live GPS tracking (NEO-6M / NEO-8M) reporting coordinates over Wi-Fi/cellular to a caregiver web dashboard.
-   - Fall and SOS alerts with timestamp and coordinates.
-   - Optional LoRa fallback for off-grid scenarios.
+2. **Smartphone BLE Geolocation & Telemetry (Phase 2)**:
+   - **No Standalone GPS Hardware Needed**: Leverages the user's companion smartphone via BLE 5.0 to fetch precise Assisted GPS (A-GPS), cell tower, and Wi-Fi geolocation.
+   - Drastically cuts power consumption, avoids indoor satellite blind spots, and saves weight and budget.
+   - Emergency fall and SOS alerts automatically trigger the smartphone app to upload coordinates and status to the family caregiver dashboard.
 
 3. **AI Voice Vision Layer (Phase 3)**:
    - Dedicated ESP32-CAM module captures environment snapshots on demand.
@@ -163,7 +163,7 @@ Sample telemetry stream:
 - [x] **Milestone 1**: Scaffolding, architecture design, and ADR documentation.
 - [x] **Milestone 2**: Phase 1 core sensing firmware (HC-SR04 ultrasonic ranging, MPU6050 IMU, 200 Hz LEDC haptic PWM, universal buzzer driver, startup self-test).
 - [x] **Milestone 3**: Physical bench testing & verification on live ESP32-C3 SuperMini hardware.
-- [ ] **Milestone 4 (Phase 2)**: GPS tracking subsystem and caregiver web dashboard integration.
+- [ ] **Milestone 4 (Phase 2)**: Smartphone BLE geolocation bridging and caregiver web dashboard integration.
 - [ ] **Milestone 5 (Phase 3)**: ESP32-CAM board firmware and off-device AI voice service pipeline.
 
 ---
@@ -171,6 +171,6 @@ Sample telemetry stream:
 ## 6. Budget & BOM Summary
 
 Tracked target prototype budget: **LKR 20,000 – 35,000**
-- **Phase 1 Prototype Cost**: **~LKR 9,550** (under LKR 10,000 ceiling)
-- **Total Multi-phase Estimated Cost**: **~LKR 19,400** (achieves full system under target ceiling)
+- **Actual Phase 1 Bench Prototype Cost**: **Rs. 2,800 (LKR)** (achieved dramatic cost efficiency, far below the LKR 10,000 Phase 1 cap)
+- **Total Multi-phase Estimated Cost**: **~LKR 11,500 – 14,000** (achieves full system well below target ceiling)
 - See [`hardware/BOM.md`](./hardware/BOM.md) for individual component pricing and local supplier references.

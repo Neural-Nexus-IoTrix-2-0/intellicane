@@ -139,3 +139,32 @@ During early hardware assembly and local component procurement:
 - **Direct GPIO Motor Drive**: The vibration motor operates within safe bench testing limits without requiring an external transistor circuit. For commercial production, a discrete driver stage will be populated to prevent inductive EMF spikes and maximize tactile amplitude.
 - **Direct Echo Signal**: The HC-SR04 Echo pin connects directly to GPIO 1 for bench testing. Production boards can implement a level shifter or adopt native 3.3V ultrasonic units (e.g. RCWL-1601).
 - **Omission of Pushbutton & Orientation Reset**: The physical tactile pushbutton is omitted from the initial bench assembly. The firmware cleanly auto-clears and rearms the fall alarm once the user lifts the cane upright ($< 30^\circ\text{ tilt}$). A physical button can be connected to GPIO 3 as an optional hardware input.
+
+---
+
+## ADR-007: Smartphone-Bridged BLE Geolocation vs. Standalone Hardware GPS Module
+
+### Status
+**Accepted**
+
+### Context
+Initial architectural designs considered mounting a dedicated GPS receiver module (e.g. u-blox NEO-6M / NEO-8M) directly on the cane body with an onboard cellular or Wi-Fi transmitter to send geolocation coordinates to a family caregiver dashboard.
+
+### Evaluation & Trade-offs
+1. **Power Consumption**: A standalone GPS receiver draws ~50–80 mA continuously while tracking, plus additional power for a cellular modem or Wi-Fi transmission. This would drastically deplete the cane's compact battery within hours.
+2. **Indoor Satellite Blind Spots**: Traditional GPS requires unobstructed line-of-sight to orbiting GNSS satellites. In typical daily usage (indoors, malls, bus shelters, subway stations), a standalone GPS fails to acquire a fix and incurs long 1–5 minute cold-start acquisition times.
+3. **Weight, Ergonomics & BOM Cost**: Adding a GPS module and ceramic patch antenna increases physical cane handle weight and adds ~Rs. 2,800 to the bill of materials.
+4. **Companion Smartphone Advantage**: Visually impaired cane users almost universally carry a smartphone running screen readers (VoiceOver, TalkBack). Smartphones provide instant, hybrid geolocation combining Assisted GPS (A-GPS), cellular tower multilateration, and Wi-Fi SSID trilateration that works seamlessly both indoors and outdoors.
+
+### Decision
+1. **Omit Standalone GPS Hardware**: Remove the dedicated GPS module from the cane hardware BOM.
+2. **Implement BLE Geolocation Bridging**: Leverage the ESP32-C3's built-in Bluetooth Low Energy (BLE 5.0) subsystem to advertise and connect directly to the user's companion smartphone.
+3. **Telemetry & Emergency Alert Bridging**:
+   - The ESP32-C3 broadcasts real-time obstacle and fall status to the companion smartphone app over BLE.
+   - When an emergency fall or SOS is detected, the smartphone app retrieves its high-precision geolocation and dispatches the alert and map pin to the caregiver dashboard over the phone's 4G/5G/Wi-Fi connection.
+
+### Consequences
+- **Cost Savings**: Eliminates ~Rs. 2,800 in unnecessary hardware components.
+- **Extended Battery Life**: The ESP32-C3 BLE transmission operates with low power draw without heavy GPS RF processing.
+- **Superior Geolocation Reliability**: Enables hybrid indoor/outdoor location fixes immediately without satellite cold-start delays.
+

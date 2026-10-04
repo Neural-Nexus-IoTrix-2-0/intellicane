@@ -23,13 +23,15 @@ flowchart TD
         MCU1 -->|Urgent Hazard Tone| BUZZ
     end
 
-    subgraph Subsystem2 ["Subsystem 2: Cloud Telemetry & Tracking (Phase 2)"]
-        GPS["NEO-6M / 8M GPS"]
-        MCU2["GPS / Telemetry Task"]
+    subgraph Subsystem2 ["Subsystem 2: BLE Smartphone Telemetry & Geolocation (Phase 2)"]
+        MCU1BLE["ESP32-C3 SuperMini (BLE 5.0)"]
+        PHONE["Companion Smartphone (App)"]
+        AGPS["Smartphone A-GPS / Wi-Fi Geolocation"]
         DASH["Caregiver Web Dashboard"]
         
-        GPS -->|UART| MCU2
-        MCU2 -->|Wi-Fi HTTP / MQTT / LoRa| DASH
+        MCU1BLE -->|BLE Telemetry & Fall Alert| PHONE
+        AGPS -->|Coordinates (Lat/Lon)| PHONE
+        PHONE -->|4G/5G/Wi-Fi Telemetry Uplink| DASH
     end
 
     subgraph Subsystem3 ["Subsystem 3: AI Vision & Voice Pipeline (Phase 3)"]
