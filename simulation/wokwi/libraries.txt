@@ -1,0 +1,7 @@
+# Wokwi Library Manager Dependencies
+# Paste these into the "Library Manager" tab in Wokwi:
+
+Adafruit MPU6050
+Adafruit Unified Sensor
+Adafruit BusIO
+IRremote

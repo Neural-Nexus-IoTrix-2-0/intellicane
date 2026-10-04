@@ -23,21 +23,21 @@ The Intelligent Cane is an assistive IoT device designed to provide proactive na
 │           Phase 1               │      │            Phase 2              │      │            Phase 3              │
 │       Core Sensing              │      │         GPS Tracking            │      │        AI Voice Layer           │
 ├─────────────────────────────────┤      ├─────────────────────────────────┤      ├─────────────────────────────────┤
-│ • VL53L1X Forward Laser ToF     │      │ • u-blox NEO-6M / NEO-8M GPS    │      │ • Dedicated ESP32-CAM Board     │
-│ • Downward Ultrasonic / ToF     │      │ • Wi-Fi Telemetry Uplink        │      │ • Cloud/Phone VLM (Gemini/GPT4o)│
+│ • ESP32-C3 SuperMini (RISC-V)   │      │ • u-blox NEO-6M / NEO-8M GPS    │      │ • Dedicated ESP32-CAM Board     │
+│ • HC-SR04 Ultrasonic Sensor     │      │ • Wi-Fi Telemetry Uplink        │      │ • Cloud/Phone VLM (Gemini/GPT4o)│
 │ • MPU6050 6-Axis Tilt & Fall    │      │ • Optional LoRa Off-Grid Uplink │      │ • Cloud Neural Text-to-Speech   │
 │ • Proportional Haptic PWM       │      │ • Family Web Dashboard          │      │ • Spoken Ambient Scene Q&A      │
-│ • Double-Burst Drop-off Pattern │      │ • Emergency Geolocation Push    │      │ • Off-device heavy computation  │
+│ • Piezo Alarm & Fall Siren      │      │ • Emergency Geolocation Push    │      │ • Off-device heavy computation  │
 │ • 100% Offline & Deterministic  │      │                                 │      │                                 │
 └─────────────────────────────────┘      └─────────────────────────────────┘      └─────────────────────────────────┘
 ```
 
-1. **Obstacle & Drop-Off Detection (Phase 1 — Current Focus)**:
+1. **Obstacle & Hazard Detection (Phase 1 — Active Build)**:
    - **Safety-Critical & Fully Offline**: Operates without any internet, Bluetooth, or cloud dependencies.
-   - **Forward Proximity**: VL53L1X Time-of-Flight sensor measures distance up to 4 meters, modulating ERM vibration motor PWM intensity (closer = stronger vibration).
-   - **Ground Drop-offs**: Downward-angled ultrasonic sensor or second ToF detects descending stairs, curbs, holes, or open drains, triggering an unmistakable **double-burst tactile vibration signature**.
+   - **Forward Proximity**: HC-SR04 ultrasonic sensor measures distance up to 4 meters, modulating ERM vibration motor PWM intensity (closer = stronger vibration).
    - **Audible Hazard Warning**: Piezo buzzer activates when forward obstacles are dangerously close ($< 30\text{ cm}$).
    - **Fall & Tilt Sensing**: MPU6050 IMU detects sudden drops, impact spikes, and extended immobility on the floor.
+   - **Ultra-Compact Form Factor**: Driven by the stamp-sized ESP32-C3 SuperMini with native USB-C.
 
 2. **Location Sharing & Telemetry (Phase 2)**:
    - Live GPS tracking (NEO-6M / NEO-8M) reporting coordinates over Wi-Fi/cellular to a caregiver web dashboard.
@@ -55,99 +55,104 @@ The Intelligent Cane is an assistive IoT device designed to provide proactive na
 ```
 intelligent-cane/
 ├── firmware/                       # Embedded C++/Arduino code
-│   ├── core-sensing/               # Phase 1: Obstacle + drop detection + vibration PWM
-│   │   ├── include/                # Sensor drivers, state machine, and config headers
-│   │   ├── src/                    # Driver and controller implementations
-│   │   ├── platformio.ini          # PlatformIO configuration (board: esp32dev)
-│   │   └── README.md
+│   ├── core-sensing/               # Phase 1 Active Build: ESP32-C3 SuperMini + HC-SR04 + MPU6050
+│   │   ├── core-sensing.ino        # Production sketch with 200Hz PWM, buzzer, and self-test
+│   │   ├── platformio.ini          # PlatformIO configuration (board: esp32-c3-devkitm-1)
+│   │   └── README.md               # Pinout and flashing instructions
+│   ├── archived-dual-tof/          # Archived reference build (dual VL53L1X/VL53L0X ToF)
 │   ├── gps-tracking/               # Phase 2: GPS NMEA parsing & telemetry reporting
 │   └── cam-module/                 # Phase 3: Dedicated ESP32-CAM snapshot streamer
 ├── ai-voice-service/                # Phase 3: Cloud/companion VLM + TTS pipeline
 ├── dashboard/                       # Family-facing web dashboard (HTML/JS)
 ├── hardware/                        # Hardware schematics, wiring, and BOM
-│   ├── wiring.md                   # Pinouts, MOSFET driver schematic, voltage dividers
+│   ├── wiring.md                   # Pinouts, 2N2222 transistor driver, voltage dividers
 │   ├── BOM.md                      # Component list and LKR budget tracking
 │   └── README.md
 ├── docs/                            # Architectural specifications & decision logs
-│   ├── architecture.md             # System architecture & timing diagrams
+│   ├── architecture.md             # System architecture & block diagrams
 │   ├── decisions.md                # Architecture Decision Records (ADRs)
 │   └── README.md
+├── simulation/                      # Wokwi simulation workspace
 ├── .gitignore
 └── README.md
 ```
 
 ---
 
-## 3. Hardware Pin Mapping (Core Sensing — ESP32)
+## 3. Hardware Pin Mapping (Core Sensing — ESP32-C3 SuperMini)
 
-| Component | Function | ESP32 GPIO | Logic Level | Notes |
+| Component | Function | ESP32-C3 Pin | Logic Level | Notes |
 |:---|:---|:---:|:---:|:---|
-| **VL53L1X** | I2C Data (`SDA`) | **GPIO 21** | 3.3V | Shared 400kHz I2C bus (Addr: `0x29`) |
-| **VL53L1X** | I2C Clock (`SCL`) | **GPIO 22** | 3.3V | Shared 400kHz I2C bus |
-| **MPU6050** | I2C Data / Clock | **GPIO 21 / 22** | 3.3V | Shared I2C bus (Addr: `0x68`, AD0 to GND) |
-| **Downward Sensor** | Ultrasonic Trigger | **GPIO 18** | 3.3V | 10 µs trigger pulse |
-| **Downward Sensor** | Ultrasonic Echo | **GPIO 5** | 3.3V | 5V→3.3V divider (1kΩ/2kΩ) if using HC-SR04 |
-| **Downward Sensor (Alt)**| VL53L0X XSHUT | **GPIO 19** | 3.3V | Readdresses VL53L0X to `0x30` on boot |
-| **Haptic Motor** | Transistor Gate/Base | **GPIO 25** | 3.3V PWM | LEDC 5kHz PWM (Duty 0–255) |
-| **Piezo Buzzer** | Alarm Audio | **GPIO 26** | 3.3V | Urgent proximity alarm (<30cm) & fall alert |
-| **Status LED** | Visual Indicator | **GPIO 2** | 3.3V | Slow pulse = OK; Fast blink = Hazard |
-| **SOS Button** | Emergency / Reset | **GPIO 27** | 3.3V | Input pull-up (Active LOW) |
+| **HC-SR04 Ultrasonic** | Trigger Pulse (`TRIG`) | **GPIO 0** | 3.3V Output | 10 µs trigger pulse |
+| **HC-SR04 Ultrasonic** | Echo Pulse (`ECHO`) | **GPIO 1** | 3.3V Input | Voltage divider ($1\text{k}\Omega / 2\text{k}\Omega$) from 5V Echo |
+| **MPU6050 (6-Axis IMU)**| I2C Data (`SDA`) | **GPIO 4** | 3.3V | Hardware I2C bus (Address: `0x68`) |
+| **MPU6050 (6-Axis IMU)**| I2C Clock (`SCL`) | **GPIO 5** | 3.3V | Hardware I2C bus |
+| **Haptic Vibration Motor**| Transistor Base/Gate | **GPIO 6** | 3.3V PWM | LEDC 200 Hz PWM (0–255 duty) via 2N2222 driver |
+| **Piezo Buzzer** | Audio Alarm (`+`) | **GPIO 7** | 3.3V | Universal driver for active & passive buzzers |
+| **Push Button (SOS)** | Alarm Reset / Emergency | **GPIO 3** | 3.3V Input | Internal `INPUT_PULLUP` enabled (Active LOW) |
+| **Status LED** | Visual Indicator | **GPIO 8** | 3.3V | Onboard SuperMini blue LED (**Active LOW**) |
 
-*Full driver schematics and flyback diode wiring are documented in [`hardware/wiring.md`](./hardware/wiring.md).*
+*Full driver schematics, flyback diode circuit, and voltage divider diagrams are documented in [`hardware/wiring.md`](./hardware/wiring.md).*
 
 ---
 
 ## 4. Getting Started for Contributors
 
 ### Prerequisites
-1. Install [PlatformIO Core](https://platformio.org/install/cli) or the [PlatformIO IDE extension](https://platformio.org/install/ide?install=vscode) in VS Code.
-2. Clone this repository:
-   ```bash
-   git clone https://github.com/Neural-Nexus-IoTrix-2-0/intelligent-cane.git
-   cd intelligent-cane
-   ```
+- [Arduino IDE](https://www.arduino.cc/en/software) with the ESP32 board package installed, OR
+- [Arduino CLI](https://arduino.github.io/arduino-cli/), OR
+- [PlatformIO Core](https://platformio.org/install/cli) / PlatformIO VS Code extension.
 
-### Building Phase 1 Firmware
+### Building & Flashing Phase 1 Firmware
+
+#### Method 1: Arduino CLI (Fastest & Verified)
+```bash
+# Compile with USB CDC On Boot enabled for ESP32-C3
+arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
+
+# Flash directly to connected board
+arduino-cli upload -p /dev/cu.usbmodem* --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
+```
+
+#### Method 2: PlatformIO
 ```bash
 cd firmware/core-sensing
-pio run
-```
-
-### Flashing to ESP32
-Connect your ESP32 board via micro-USB or USB-C:
-```bash
 pio run --target upload
 ```
+
+#### Method 3: Arduino IDE
+1. Open `firmware/core-sensing/core-sensing.ino`.
+2. Select Board: **ESP32C3 Dev Module**.
+3. Select **Tools > USB CDC On Boot > Enabled**.
+4. Select **Tools > Flash Mode > DIO**.
+5. Select the USB modem serial port and click **Upload**.
 
 ### Live Telemetry Monitoring
 Open the serial console at 115200 baud:
 ```bash
 pio device monitor -b 115200
+# or
+arduino-cli monitor -p /dev/cu.usbmodem* -c baudrate=115200
 ```
 
-Sample output:
+Sample telemetry stream:
 ```text
 =======================================================
   INTELLIGENT CANE — PHASE 1 CORE SENSING BOOTING
   Neural-Nexus IoTrix 2.0 (Track A Embedded IoT)
 =======================================================
-[System] Initializing I2C bus (SDA=GPIO21, SCL=GPIO22 @ 400kHz)...
-[ForwardSensor] VL53L1X initialized successfully (Continuous Medium Mode @ 30Hz)
-[DownwardSensor] Baseline calibrated: 40.2 cm (from 5 samples)
-[MotionSensor] MPU6050 initialized successfully (Range: ±8G, Filter: 21Hz)
-[HapticFeedback] LEDC PWM initialized on GPIO 25 (5kHz, 8-bit)
-[BuzzerAlert] Buzzer initialized on GPIO 26
--------------------------------------------------------
-  Forward ToF:    [OK (VL53L1X)]
-  Downward:       [OK]
-  MPU6050 IMU:    [OK]
-  Haptic Motor:   [OK (GPIO25 LEDC CH0)]
-  Piezo Buzzer:   [OK (GPIO26)]
+[System] Initializing I2C bus (SDA=GPIO 4, SCL=GPIO 5)...
+[Motion] MPU6050 initialized successfully!
+[HC-SR04] Ultrasonic sensor ready (Trig: GPIO 0, Echo: GPIO 1)
+[Haptic] LEDC PWM initialized on GPIO 6 (200 Hz, 8-bit)
+[Buzzer] Configured on GPIO 7
+[SelfTest] Running motor & buzzer self-test...
+[SelfTest] Self-test complete! System ARMED.
 =======================================================
 
-[TELEM] Fwd: 112.4 cm | Down:  40.1 cm (Base: 40.2) | Tilt: 14.2 deg | G: 1.00 | Haptic: 115 PWM (PROP) | Buzz: 0
-[TELEM] Fwd:  24.5 cm | Down:  40.0 cm (Base: 40.2) | Tilt: 13.8 deg | G: 0.99 | Haptic: 255 PWM (PROP) | Buzz: 1
-[TELEM] Fwd: 180.0 cm | Down:  68.4 cm (Base: 40.2) | Tilt: 15.0 deg | G: 1.01 | Haptic: 240 PWM (DROP_OFF!) | Buzz: 0
+[CANE-C3] Dist: 142.3 cm | Tilt:  2.1° | Vib:   0% (PWM:   0) | Buzzer: MUTED   | Alert: CLEAR
+[CANE-C3] Dist:  68.5 cm | Tilt:  1.8° | Vib:  57% (PWM: 146) | Buzzer: MUTED   | Alert: CLEAR
+[CANE-C3] Dist:  18.2 cm | Tilt:  2.4° | Vib: 100% (PWM: 255) | Buzzer: BEEPING | Alert: CRITICAL HAZARD!
 ```
 
 ---
@@ -155,8 +160,8 @@ Sample output:
 ## 5. Development Roadmap
 
 - [x] **Milestone 1**: Scaffolding, architecture design, and ADR documentation.
-- [x] **Milestone 2**: Phase 1 core sensing firmware (VL53L1X driver, Downward ground sensor, MPU6050 IMU, proportional haptic PWM, drop-off double-burst pattern, buzzer alarm).
-- [ ] **Milestone 3**: Physical bench testing & sensor calibration on cane prototype hardware.
+- [x] **Milestone 2**: Phase 1 core sensing firmware (HC-SR04 ultrasonic ranging, MPU6050 IMU, 200 Hz LEDC haptic PWM, universal buzzer driver, startup self-test).
+- [x] **Milestone 3**: Physical bench testing & verification on live ESP32-C3 SuperMini hardware.
 - [ ] **Milestone 4 (Phase 2)**: GPS tracking subsystem and caregiver web dashboard integration.
 - [ ] **Milestone 5 (Phase 3)**: ESP32-CAM board firmware and off-device AI voice service pipeline.
 
@@ -165,6 +170,6 @@ Sample output:
 ## 6. Budget & BOM Summary
 
 Tracked target prototype budget: **LKR 20,000 – 35,000**
-- **Phase 1 Estimated Cost**: ~LKR 13,250
-- **Total Multi-phase Estimated Cost**: ~LKR 23,100
+- **Phase 1 Prototype Cost**: **~LKR 9,700** (under LKR 10,000 ceiling)
+- **Total Multi-phase Estimated Cost**: **~LKR 19,550** (achieves full system under target ceiling)
 - See [`hardware/BOM.md`](./hardware/BOM.md) for individual component pricing and local supplier references.

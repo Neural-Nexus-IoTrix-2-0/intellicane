@@ -10,17 +10,17 @@ The Intelligent Cane is designed to empower visually impaired individuals with s
 
 ```mermaid
 flowchart TD
-    subgraph Subsystem1 ["Subsystem 1: Safety-Critical Sensing (ESP32 - Offline)"]
-        TOF1["VL53L1X Forward ToF (up to 4m)"]
-        DOWN["Downward Sensor (Ultrasonic / VL53L0X)"]
+    subgraph Subsystem1 ["Subsystem 1: Safety-Critical Sensing (ESP32-C3 SuperMini - Offline)"]
+        US["HC-SR04 Ultrasonic Distance Sensor"]
         IMU["MPU6050 6-Axis IMU (Tilt / Fall)"]
-        MCU1["ESP32 Core Sensing Controller"]
-        VIB["Haptic Vibration Motor (PWM)"]
-        BUZZ["Emergency Buzzer"]
+        MCU1["ESP32-C3 SuperMini Controller"]
+        VIB["Haptic Vibration Motor (200Hz LEDC PWM)"]
+        BUZZ["Emergency Buzzer (GPIO 7)"]
+        BTN["SOS / Reset Pushbutton (GPIO 3)"]
         
-        TOF1 -->|I2C 0x29| MCU1
-        DOWN -->|GPIO / I2C| MCU1
-        IMU -->|I2C 0x68| MCU1
+        US -->|Trig: GPIO 0, Echo: GPIO 1| MCU1
+        IMU -->|I2C: SDA 4, SCL 5| MCU1
+        BTN -->|GPIO 3 Pullup| MCU1
         MCU1 -->|LEDC PWM Intensity| VIB
         MCU1 -->|Urgent Hazard Tone| BUZZ
     end

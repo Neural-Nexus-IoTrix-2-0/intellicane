@@ -109,3 +109,28 @@ The user's hand needs intuitive, non-fatiguing tactile guidance. The cane must c
    - *Rationale*: Clean object-oriented interface, unit-normalized readings ($m/s^2$ and $rad/s$), reliable I2C register handling.
 4. **Ultrasonic**: Custom lightweight, non-blocking timing driver
    - *Rationale*: Avoids blocking interrupts, provides timeout protection, and requires no external third-party library.
+
+---
+
+## ADR-006: Migration to ESP32-C3 SuperMini and HC-SR04 for Phase 1 Prototype
+
+### Status
+**Accepted**
+
+### Context
+During early hardware assembly and local component procurement:
+1. VL53L1X and VL53L0X Time-of-Flight sensors were out of stock or prohibitively expensive locally.
+2. The standard 30/38-pin NodeMCU ESP32 boards presented mechanical constraints (too bulky for an ergonomic cane handle) and bootstrapping/SPI flash pin contention issues during flashing.
+3. The team selected the **ESP32-C3 SuperMini** as the primary microcontroller, paired with a reliable **HC-SR04** ultrasonic distance sensor.
+
+### Trade-offs & Decisions
+- **Form Factor**: The ESP32-C3 SuperMini (~22mm × 18mm) is dramatically smaller and lighter than standard devkits, allowing seamless integration inside the cane handle cavity.
+- **Native USB-C Architecture**: The ESP32-C3 integrates native USB-JTAG/CDC directly on-chip, eliminating external USB-UART bridge driver issues and preventing flash-bus bootstrapping failures.
+- **Ultrasonic Obstacle Sensing**: HC-SR04 provides reliable ranging from 2cm to 400cm, unhindered by ambient sunlight or dark surface absorption.
+- **Pin Assignment for ESP32-C3**:
+  - HC-SR04: `TRIG = GPIO 0`, `ECHO = GPIO 1` (via 1kΩ/2kΩ divider)
+  - MPU6050: `SDA = GPIO 4`, `SCL = GPIO 5`
+  - Vibration Motor: `GPIO 6` (LEDC PWM at 200 Hz via 2N2222)
+  - Buzzer: `GPIO 7` (Universal Active/Passive driver)
+  - Push Button: `GPIO 3` (`INPUT_PULLUP`)
+  - Status LED: `GPIO 8` (Onboard Blue LED, Active LOW)

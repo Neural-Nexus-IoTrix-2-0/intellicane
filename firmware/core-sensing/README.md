@@ -1,68 +1,81 @@
-# Phase 1: Core Sensing Subsystem (`core-sensing`)
+# Core Sensing Subsystem — ESP32-C3 SuperMini
 
-This PlatformIO project contains the safety-critical firmware for the Intelligent Cane prototype. It runs on an ESP32 microcontroller with **zero cloud or network dependency**, guaranteeing low-latency hazard detection, ground drop-off protection, and intuitive tactile and audible user warnings.
-
----
-
-## Hardware Interfacing
-
-| Subsystem | Sensor / Actuator | ESP32 GPIO | Bus / Protocol |
-|---|---|---|---|
-| Forward Ranging | Pololu VL53L1X Time-of-Flight (up to 4m) | SDA=21, SCL=22 | I2C (0x29 @ 400kHz) |
-| Motion / Orientation | Adafruit MPU6050 6-Axis IMU | SDA=21, SCL=22 | I2C (0x68 @ 400kHz) |
-| Downward Ground | Ultrasonic (HC-SR04/US-015) | TRIG=18, ECHO=5 | Digital Pulse (5V->3.3V divider) |
-| Downward Ground (Alt) | VL53L0X Time-of-Flight | SDA=21, SCL=22, XSHUT=19 | I2C (0x30 @ 400kHz) |
-| Tactile Haptic | ERM Vibration Motor | GPIO 25 | LEDC PWM (5kHz, 8-bit) via Transistor |
-| Audio Alert | Piezo Buzzer | GPIO 26 | Digital / Tone Alarm |
-| Diagnostics LED | Onboard Blue LED | GPIO 2 | Digital Output |
-| SOS / Reset Button | Tactile Pushbutton | GPIO 27 | INPUT_PULLUP (Active LOW) |
+This project contains the production firmware for the safety-critical obstacle detection and haptic feedback layer of the Intelligent Cane, targeting the ultra-compact **ESP32-C3 SuperMini** microcontroller.
 
 ---
 
-## Safety Logic & Feedback Signatures
+## Hardware Pinout (ESP32-C3 SuperMini)
 
-1. **Forward Obstacle Distance Proximity**:
-   - `> 150 cm`: Vibration motor **OFF** (Clear path).
-   - `80 cm – 150 cm`: Gentle proportional haptic vibration (PWM 30%–60%).
-   - `30 cm – 80 cm`: Strong proportional haptic vibration (PWM 60%–95%).
-   - `< 30 cm`: **100% Full Vibration + Urgent Buzzer Beeps** (Critical hazard).
-
-2. **Ground Drop-off Detection (Descending stairs, curbs, open drains)**:
-   - Downward sensor continuously checks ground distance against calibrated baseline.
-   - When distance spikes by $+20\text{ cm}$ above baseline (or beam reflection is lost over a step down):
-     - Overrides forward vibration with a distinctive **double-burst tactile signature**:
-       `150ms ON` $\rightarrow$ `80ms OFF` $\rightarrow$ `150ms ON` $\rightarrow$ `250ms OFF`.
-     - The user immediately feels the difference between an obstacle ahead and a step down below.
-
-3. **Fall Detection (MPU6050 Multi-Stage)**:
-   - Detects freefall ($<0.4\text{ g}$) followed by impact ($>2.5\text{ g}$) and subsequent immobility with cane horizontal ($>70^\circ$ tilt) for $>3\text{ seconds}$.
-   - Triggers continuous emergency alarm and alert pulsing until user recovers cane or presses SOS button.
+| Peripheral | Function | ESP32-C3 Pin | Logic Level | Electrical Notes |
+|:---|:---|:---:|:---:|:---|
+| **HC-SR04** (Ultrasonic) | `TRIG` | **GPIO 0** | 3.3V Output | 10 µs trigger pulse |
+| | `ECHO` | **GPIO 1** | 3.3V Input | **Voltage divider** ($1\text{k}\Omega / 2\text{k}\Omega$) from 5V Echo |
+| | `VCC` | **5V** | 5V Power | Powers ultrasonic transducer |
+| | `GND` | **GND** | 0V | Common ground |
+| **MPU6050** (6-Axis IMU) | `SDA` | **GPIO 4** | 3.3V | Hardware I2C Data line |
+| | `SCL` | **GPIO 5** | 3.3V | Hardware I2C Clock line |
+| | `VCC` | **3V3** | 3.3V Power | Onboard 3.3V regulator rail |
+| | `GND` | **GND** | 0V | Common ground |
+| | `AD0` | **GND** | 0V | Sets I2C address to `0x68` |
+| **Haptic Vibration Motor** | Driver Gate/Base | **GPIO 6** | 3.3V PWM | LEDC PWM (200 Hz, 8-bit) via 2N2222 transistor |
+| **Piezo Buzzer** | `(+) / Signal` | **GPIO 7** | 3.3V | Supports both Active & Passive 5V/3.3V buzzers |
+| | `(-) / GND` | **GND** | 0V | Common ground |
+| **Push Button** | Switch | **GPIO 3** | 3.3V Input | Internal `INPUT_PULLUP` enabled (Active LOW) |
+| | Return | **GND** | 0V | Ground |
+| **Status Blue LED** | Indicator | **GPIO 8** | 3.3V | Built-in on ESP32-C3 SuperMini (**Active LOW**) |
 
 ---
 
-## Build & Flash Instructions
+## Operating Logic & Feedback
 
-### Prerequisites
-- [PlatformIO Core](https://platformio.org/install/cli) installed (`pio`).
+1. **Clear Path ($> 120\text{ cm}$)**:
+   - Vibration Motor: **OFF** (0% PWM)
+   - Buzzer: **Silent**
+   - Blue LED: **OFF** (HIGH)
+2. **Caution & Warning Zone ($30\text{ cm} - 120\text{ cm}$)**:
+   - Proportional vibration intensity ramps smoothly from 35% up to 100% as the obstacle nears.
+   - Status LED reflects vibration activity.
+3. **Critical Hazard Proximity ($< 30\text{ cm}$)**:
+   - Vibration Motor: **100% Full Spin** (PWM 255)
+   - Buzzer: **Rapid Urgent Beeping** (100ms ON / 100ms OFF)
+   - Status LED: **Rapid Flashing**
+4. **Cane Dropped / Fall Alarm ($> 65^\circ$ Tilt or Impact Spike)**:
+   - High-priority alternating siren on buzzer.
+   - Rhythmic tactile pulsing on vibration motor.
+   - Pressing the **Green Pushbutton** on GPIO 3 clears the alarm.
+5. **Startup Self-Test**:
+   - On boot, the cane sounds **2 confirmation beeps** and runs a **1-second 100% vibration burst** to verify hardware actuators.
 
-### Compile Firmware
+---
+
+## How to Compile & Flash
+
+### Method A: Arduino CLI (Recommended)
 ```bash
-cd firmware/core-sensing
-pio run
+# Compile
+arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
+
+# Flash to connected ESP32-C3
+arduino-cli upload -p /dev/cu.usbmodem* --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
 ```
 
-### Upload to ESP32
-Connect your ESP32 board via USB, then:
+### Method B: Arduino IDE
+1. Open `firmware/core-sensing/core-sensing.ino`.
+2. Under **Tools > Board**, select **`ESP32C3 Dev Module`**.
+3. Under **Tools > USB CDC On Boot**, select **`Enabled`**.
+4. Under **Tools > Flash Mode**, select **`DIO`**.
+5. Select port `/dev/cu.usbmodem*` and click **Upload**.
+
+### Method C: PlatformIO
 ```bash
+cd firmware/core-sensing
 pio run --target upload
 ```
 
-### Monitor Serial Output
-```bash
-pio device monitor -b 115200
-```
+---
 
-### Telemetry Stream Format
-```
-[TELEM] Fwd:  85.2 cm | Down:  39.5 cm (Base: 40.0) | Tilt: 12.3 deg | G: 0.99 | Haptic: 142 PWM (PROP) | Buzz: 0
+## Serial Telemetry Output (115200 Baud)
+```text
+[CANE-C3] Dist:  88.8 cm | Tilt:  0.0° | Vib:  64% (PWM: 165) | Buzzer: MUTED   | Alert: CLEAR
+[CANE-C3] Dist:   5.5 cm | Tilt:  0.0° | Vib: 100% (PWM: 255) | Buzzer: BEEPING | Alert: CRITICAL HAZARD!
 ```
