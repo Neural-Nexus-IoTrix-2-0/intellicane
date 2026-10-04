@@ -24,14 +24,52 @@
 #include <BLE2902.h>
 #include "ProximityFeedback.h"
 
-// BLE UUIDs for Intelligent Cane Telemetry Service
-#define BLE_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define BLE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+// Nordic UART Service (NUS) — Industry Standard for Bluetooth Wireless Serial
+#define NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define NUS_TX_UUID      "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" // ESP32 -> Phone (Notify)
+#define NUS_RX_UUID      "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Phone -> ESP32 (Write)
 
 bool bleClientConnected = false;
 String connectedClientMac = "";
 BLEServer *pBleServer = nullptr;
-BLECharacteristic *pTelemetryCharacteristic = nullptr;
+BLECharacteristic *pTxCharacteristic = nullptr;
+BLECharacteristic *pRxCharacteristic = nullptr;
+
+void blePrint(const char* msg) {
+    if (!bleClientConnected || pTxCharacteristic == nullptr) return;
+    size_t len = strlen(msg);
+    size_t offset = 0;
+    while (offset < len) {
+        size_t chunk = len - offset;
+        if (chunk > 20) chunk = 20; // Safe chunk size across all mobile BLE stacks
+        pTxCharacteristic->setValue((uint8_t*)(msg + offset), chunk);
+        pTxCharacteristic->notify();
+        offset += chunk;
+        if (offset < len) delay(4);
+    }
+}
+
+void blePrintln(const char* msg) {
+    char buf[180];
+    snprintf(buf, sizeof(buf), "%s\r\n", msg);
+    blePrint(buf);
+}
+
+extern bool fallAlert;
+
+class CaneRxCallbacks : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) override {
+        String rxValue = pCharacteristic->getValue();
+        if (rxValue.length() > 0) {
+            Serial.printf("[BLE RX] Command received: %s\n", rxValue.c_str());
+            if (rxValue.indexOf("reset") >= 0 || rxValue.indexOf("r") >= 0) {
+                fallAlert = false;
+                Serial.println("[BLE] Fall alert cleared via wireless command.");
+                blePrintln("[CANE-C3] Fall alert cleared via wireless command.");
+            }
+        }
+    }
+};
 
 class CaneBLECallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) override {
@@ -49,6 +87,10 @@ class CaneBLECallbacks : public BLEServerCallbacks {
         Serial.printf("  [BLE] >>> CLIENT CONNECTED! (Peer MAC: %s) <<<\n",
                       connectedClientMac.length() > 0 ? connectedClientMac.c_str() : "Unknown");
         Serial.println("=======================================================\n");
+
+        blePrintln("=======================================================");
+        blePrintln("  INTELLIGENT CANE — LIVE WIRELESS SERIAL MONITOR");
+        blePrintln("=======================================================");
     }
 
     void onDisconnect(BLEServer* pServer, ble_gap_conn_desc *desc) override {
@@ -78,6 +120,7 @@ class CaneBLECallbacks : public BLEServerCallbacks {
 void initBLE() {
     Serial.println("[BLE] Initializing Bluetooth Low Energy (BLE)...");
     BLEDevice::init("Intelligent-Cane");
+    BLEDevice::setMTU(256);
 
     String localMac = BLEDevice::getAddress().toString();
     Serial.printf("[BLE] Device Name : Intelligent-Cane\n");
@@ -86,24 +129,34 @@ void initBLE() {
     pBleServer = BLEDevice::createServer();
     pBleServer->setCallbacks(new CaneBLECallbacks());
 
-    BLEService *pService = pBleServer->createService(BLE_SERVICE_UUID);
-    pTelemetryCharacteristic = pService->createCharacteristic(
-        BLE_CHARACTERISTIC_UUID,
-        BLECharacteristic::PROPERTY_READ |
+    // Create Nordic UART Service
+    BLEService *pService = pBleServer->createService(NUS_SERVICE_UUID);
+
+    // TX Characteristic (Notify to mobile app / terminal)
+    pTxCharacteristic = pService->createCharacteristic(
+        NUS_TX_UUID,
         BLECharacteristic::PROPERTY_NOTIFY
     );
-    pTelemetryCharacteristic->addDescriptor(new BLE2902());
-    pTelemetryCharacteristic->setValue("Cane Online");
+    pTxCharacteristic->addDescriptor(new BLE2902());
+
+    // RX Characteristic (Commands from mobile app)
+    pRxCharacteristic = pService->createCharacteristic(
+        NUS_RX_UUID,
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR
+    );
+    pRxCharacteristic->setCallbacks(new CaneRxCallbacks());
+
     pService->start();
 
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
+    pAdvertising->addServiceUUID(NUS_SERVICE_UUID);
     pAdvertising->setScanResponse(true);
     pAdvertising->setMinPreferred(0x06);
     pAdvertising->setMinPreferred(0x12);
     BLEDevice::startAdvertising();
 
-    Serial.println("[BLE] Advertising started. Discoverable as 'Intelligent-Cane'.");
+    Serial.println("[BLE] Wireless Serial (NUS) active. Discoverable as 'Intelligent-Cane'.");
 }
 
 // ============================================================================
@@ -501,24 +554,23 @@ void loop() {
             snprintf(bleStatusBuf, sizeof(bleStatusBuf), "ADVERTISING");
         }
 
-        Serial.printf("[CANE-C3] Dist: %5.1f cm | Tilt: %s | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %-22s | Alert: %s\n",
-                      distanceCm,
-                      tiltBuf,
-                      vibPercent,
-                      currentMotorPwm,
-                      buzzerState ? "ON" : "OFF",
-                      bleStatusBuf,
-                      alertMsg);
+        char telemLine[160];
+        snprintf(telemLine, sizeof(telemLine),
+                 "[CANE-C3] Dist: %5.1f cm | Tilt: %s | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %-22s | Alert: %s",
+                 distanceCm,
+                 tiltBuf,
+                 vibPercent,
+                 currentMotorPwm,
+                 buzzerState ? "ON" : "OFF",
+                 bleStatusBuf,
+                 alertMsg);
 
-        // Send live telemetry to connected BLE client
-        if (bleClientConnected && pTelemetryCharacteristic != nullptr) {
-            char bleMsg[64];
-            snprintf(bleMsg, sizeof(bleMsg), "Dist:%.1f,Tilt:%s,Alert:%s",
-                     isfinite(distanceCm) ? distanceCm : -1.0f,
-                     tiltBuf,
-                     alertMsg);
-            pTelemetryCharacteristic->setValue(bleMsg);
-            pTelemetryCharacteristic->notify();
+        // Output to USB Hardware Serial Monitor
+        Serial.println(telemLine);
+
+        // Stream identical line to connected Bluetooth client
+        if (bleClientConnected) {
+            blePrintln(telemLine);
         }
     }
 }
