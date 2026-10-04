@@ -9,7 +9,7 @@ This project contains the production firmware for the safety-critical obstacle d
 | Peripheral | Function | ESP32-C3 Pin | Logic Level | Electrical Notes |
 |:---|:---|:---:|:---:|:---|
 | **HC-SR04** (Ultrasonic) | `TRIG` | **GPIO 0** | 3.3V Output | 10 µs trigger pulse |
-| | `ECHO` | **GPIO 1** | 3.3V Input | **Voltage divider** ($1\text{k}\Omega / 2\text{k}\Omega$) from 5V Echo |
+| | `ECHO` | **GPIO 1** | 3.3V / 5V | **Direct connection** (bench prototype) |
 | | `VCC` | **5V** | 5V Power | Powers ultrasonic transducer |
 | | `GND` | **GND** | 0V | Common ground |
 | **MPU6050** (6-Axis IMU) | `SDA` | **GPIO 4** | 3.3V | Hardware I2C Data line |
@@ -17,7 +17,8 @@ This project contains the production firmware for the safety-critical obstacle d
 | | `VCC` | **3V3** | 3.3V Power | Onboard 3.3V regulator rail |
 | | `GND` | **GND** | 0V | Common ground |
 | | `AD0` | **GND** | 0V | Sets I2C address to `0x68` |
-| **Haptic Vibration Motor** | Driver Gate/Base | **GPIO 6** | 3.3V PWM | LEDC PWM (200 Hz, 8-bit) via 2N2222 transistor |
+| **Haptic Vibration Motor** | `(+) / Signal` | **GPIO 6** | 3.3V PWM | **Direct GPIO drive** (LEDC 200 Hz PWM, 8-bit) |
+| | `(-) / Ground` | **GND** | 0V | Common ground |
 | **Piezo Buzzer** | `(+) / Signal` | **GPIO 7** | 3.3V | Supports both Active & Passive 5V/3.3V buzzers |
 | | `(-) / GND` | **GND** | 0V | Common ground |
 | **Push Button** | Switch | **GPIO 3** | 3.3V Input | Internal `INPUT_PULLUP` enabled (Active LOW) |

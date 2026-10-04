@@ -128,9 +128,13 @@ During early hardware assembly and local component procurement:
 - **Native USB-C Architecture**: The ESP32-C3 integrates native USB-JTAG/CDC directly on-chip, eliminating external USB-UART bridge driver issues and preventing flash-bus bootstrapping failures.
 - **Ultrasonic Obstacle Sensing**: HC-SR04 provides reliable ranging from 2cm to 400cm, unhindered by ambient sunlight or dark surface absorption.
 - **Pin Assignment for ESP32-C3**:
-  - HC-SR04: `TRIG = GPIO 0`, `ECHO = GPIO 1` (via 1kΩ/2kΩ divider)
-  - MPU6050: `SDA = GPIO 4`, `SCL = GPIO 5`
-  - Vibration Motor: `GPIO 6` (LEDC PWM at 200 Hz via 2N2222)
+  - HC-SR04: `TRIG = GPIO 0`, `ECHO = GPIO 1` (Direct connection on bench prototype; 1kΩ/2kΩ divider recommended for production revision)
+  - MPU6050: `SDA = GPIO 4`, `SCL = GPIO 5` (Hardware I2C at 400kHz)
+  - Vibration Motor: `GPIO 6` (LEDC PWM at 200 Hz; driven directly from GPIO 6 on bench build; external 2N2222/MOSFET driver recommended for final production PCB)
   - Buzzer: `GPIO 7` (Universal Active/Passive driver)
   - Push Button: `GPIO 3` (`INPUT_PULLUP`)
   - Status LED: `GPIO 8` (Onboard Blue LED, Active LOW)
+
+### Consequences & Production Migration Path
+- **Direct GPIO Motor Drive**: The vibration motor operates within safe bench testing limits without requiring an external transistor circuit. For commercial production, a discrete driver stage will be populated to prevent inductive EMF spikes and maximize tactile amplitude.
+- **Direct Echo Signal**: The HC-SR04 Echo pin connects directly to GPIO 1 for bench testing. Production boards can implement a level shifter or adopt native 3.3V ultrasonic units (e.g. RCWL-1601).

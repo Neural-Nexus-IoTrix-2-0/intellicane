@@ -9,7 +9,7 @@ This guide details the complete electrical connections, pin mapping, driver circ
 | Component | Pin Function | ESP32-C3 Pin | Logic Level | Operating Voltage | Notes |
 |:---|:---|:---:|:---:|:---:|:---|
 | **HC-SR04 (Ultrasonic)** | `TRIG` | **GPIO 0** | 3.3V | 5V | 10 µs trigger pulse output |
-| | `ECHO` | **GPIO 1** | 3.3V | 5V | **Voltage divider** ($1\text{k}\Omega / 2\text{k}\Omega$) from 5V Echo |
+| | `ECHO` | **GPIO 1** | 3.3V / 5V | 5V | **Direct connection** for bench prototype (omits divider) |
 | | `VCC` | **5V Pin** | — | 5V | Power from 5V rail / USB VIN |
 | | `GND` | **GND** | — | 0V | Common ground |
 | **MPU6050 (6-Axis IMU)** | `SDA` | **GPIO 4** | 3.3V | 3.3V | Hardware I2C Data line |
@@ -17,7 +17,8 @@ This guide details the complete electrical connections, pin mapping, driver circ
 | | `AD0` | **GND** | 0V | — | Sets I2C address to `0x68` |
 | | `VCC` | **3V3 Pin** | — | 3.3V | Power from 3.3V rail |
 | | `GND` | **GND** | — | 0V | Common ground |
-| **Haptic Vibration Motor** | `GATE/BASE` | **GPIO 6** | 3.3V | 3.3V / 5V | LEDC PWM (200 Hz) to transistor driver |
+| **Haptic Vibration Motor** | `(+) / Red` | **GPIO 6** | 3.3V PWM | 3.3V | **Direct GPIO drive** for bench prototype (omits transistor) |
+| | `(-) / Blue` | **GND** | — | 0V | Common ground |
 | **Audible Alarm (Buzzer)** | `(+) / SIG` | **GPIO 7** | 3.3V | 3.3V / 5V | Supports both Active & Passive buzzers |
 | | `(-) / GND` | **GND** | — | 0V | Common ground |
 | **Push Button (SOS)** | `SWITCH` | **GPIO 3** | 3.3V | — | Internal `INPUT_PULLUP` enabled (Active LOW) |
@@ -26,15 +27,21 @@ This guide details the complete electrical connections, pin mapping, driver circ
 
 ---
 
-## 2. Driver Circuit Diagrams
+## 2. Driver & Interfacing Diagrams
 
-### 2.1 Haptic Vibration Motor Driver Circuit
+### 2.1 Haptic Vibration Motor Circuit
 
-Vibration disc motors (1027 / 1034 coin type) draw **60 mA to 120 mA** at 3V–3.7V. An ESP32-C3 GPIO pin can only safely supply **up to 20 mA**. 
-**Never connect the vibration motor directly to an ESP32 GPIO pin.**
+#### Current Bench Prototype Setup (Direct GPIO Connection)
+Due to local component availability constraints, the vibration motor is currently connected directly between **GPIO 6** and **GND**:
 
-Use an NPN BJT (2N2222 / BC547) or an N-channel logic-level MOSFET (2N7000 / AO3400):
+```
+ESP32-C3 GPIO 6 (LEDC PWM) ─────[ (+) Vibration Motor (-) ]───── GND
+```
+- **Driver**: Modulated via ESP32-C3 LEDC PWM at **200 Hz** (optimized for DC brushed coin vibration motors).
+- **Bench Note**: The motor runs directly from the GPIO pin current. For the current bench prototype, this simplifies assembly without needing external discrete components.
+- **Production Recommendation**: In the final revision or custom PCB, adding an NPN transistor (2N2222) or N-channel MOSFET with a 1N4148 flyback diode allows full current delivery (60–120 mA) and isolates the microcontroller from inductive transients.
 
+#### Recommended Production Driver Circuit (Reference)
 ```
               +3.3V or +5V (VCC_MOTOR)
                      │
@@ -61,10 +68,21 @@ Component Values:
 
 ---
 
-### 2.2 Ultrasonic 5V to 3.3V Voltage Divider (HC-SR04)
+### 2.2 Ultrasonic Sensor Interfacing (HC-SR04)
 
-Standard 5V HC-SR04 sensors output a 5V echo pulse. Use a two-resistor voltage divider to protect the ESP32-C3 GPIO 1 input:
+#### Current Bench Prototype Setup (Direct Echo Connection)
+For the current bench setup, the HC-SR04 is wired directly to the ESP32-C3 without an external resistor divider:
 
+```
+HC-SR04 TRIG Pin ────────────────────────── ESP32-C3 GPIO 0 (Output, 3.3V)
+HC-SR04 ECHO Pin ────────────────────────── ESP32-C3 GPIO 1 (Input, Direct)
+HC-SR04 VCC Pin  ────────────────────────── 5V Pin (USB VIN)
+HC-SR04 GND Pin  ────────────────────────── GND
+```
+- **Bench Note**: The ESP32-C3 GPIO 1 pin receives the Echo return pulse directly.
+- **Production Recommendation**: For permanent deployment, a two-resistor voltage divider (1 kΩ / 2 kΩ) or a native 3.3V sensor (e.g., RCWL-1601 / US-015) can be used to scale the 5V return signal to 3.3V.
+
+#### Recommended Production Voltage Divider (Reference)
 ```
 HC-SR04 ECHO Pin (5V Pulse)
           │

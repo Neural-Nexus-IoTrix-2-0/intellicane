@@ -14,14 +14,14 @@ flowchart TD
         US["HC-SR04 Ultrasonic Distance Sensor"]
         IMU["MPU6050 6-Axis IMU (Tilt / Fall)"]
         MCU1["ESP32-C3 SuperMini Controller"]
-        VIB["Haptic Vibration Motor (200Hz LEDC PWM)"]
+        VIB["Haptic Vibration Motor (Direct GPIO 6 PWM)"]
         BUZZ["Emergency Buzzer (GPIO 7)"]
         BTN["SOS / Reset Pushbutton (GPIO 3)"]
         
-        US -->|Trig: GPIO 0, Echo: GPIO 1| MCU1
+        US -->|Trig: GPIO 0, Echo: GPIO 1 (Direct)| MCU1
         IMU -->|I2C: SDA 4, SCL 5| MCU1
         BTN -->|GPIO 3 Pullup| MCU1
-        MCU1 -->|LEDC PWM Intensity| VIB
+        MCU1 -->|LEDC 200Hz PWM Duty| VIB
         MCU1 -->|Urgent Hazard Tone| BUZZ
     end
 
@@ -48,28 +48,17 @@ flowchart TD
 
 ## 2. Phase 1 Firmware Architecture (`core-sensing`)
 
-Phase 1 operates with zero cloud or internet connectivity. It must guarantee deterministic response times ($\le 50\text{ ms}$) from physical hazard detection to tactile feedback.
+Phase 1 operates with zero cloud or internet connectivity. It guarantees deterministic response times ($\le 50\text{ ms}$) from physical hazard detection to tactile feedback.
 
 ### 2.1 Software Component Hierarchy
 
 ```
 firmware/core-sensing/
-├── include/
-│   ├── config.h             # Pin definitions, thresholds, sensor types, timing
-│   ├── ForwardSensor.h      # VL53L1X ToF distance driver
-│   ├── DownwardSensor.h     # Downward ground sensing abstraction (Ultrasonic / VL53L0X)
-│   ├── MotionSensor.h       # MPU6050 tilt and fall detector
-│   ├── HapticFeedback.h     # Non-blocking PWM & rhythmic vibration sequencer
-│   ├── BuzzerAlert.h        # Audible alarm generator for critical proximity
-│   └── CaneController.h     # Master coordinator executing the safety state machine
-└── src/
-    ├── ForwardSensor.cpp
-    ├── DownwardSensor.cpp
-    ├── MotionSensor.cpp
-    ├── HapticFeedback.cpp
-    ├── BuzzerAlert.cpp
-    ├── CaneController.cpp
-    └── main.cpp             # Arduino setup() and loop() entry points
+├── core-sensing.ino        # Production firmware (HC-SR04, MPU6050, direct motor drive, self-test)
+├── platformio.ini          # PlatformIO build configuration (board: esp32-c3-devkitm-1)
+└── README.md               # Hardware pinout, bench wiring guide, and flashing instructions
+
+firmware/archived-dual-tof/ # Archived dual-ToF modular architecture (VL53L1X + VL53L0X)
 ```
 
 ---
@@ -78,7 +67,7 @@ firmware/core-sensing/
 
 ### 3.1 Forward Obstacle Proximity Mapping
 
-Forward distance measured by the VL53L1X laser ToF is mapped continuously to vibration motor PWM duty cycle (closer obstacles produce exponentially or linearly increasing vibration):
+Forward distance measured by the HC-SR04 ultrasonic sensor is mapped continuously to vibration motor PWM duty cycle (closer obstacles produce increasing vibration):
 
 | Distance ($d$) | Alert Level | Vibration Motor Duty Cycle | Buzzer Status | Status LED |
 |:---|:---|:---:|:---:|:---:|

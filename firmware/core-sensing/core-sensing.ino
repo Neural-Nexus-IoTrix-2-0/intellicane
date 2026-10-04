@@ -3,9 +3,9 @@
  * Intelligent Cane — Hardware Diagnostic & Robust Driver (ESP32-C3 SuperMini)
  * Neural-Nexus | IoTrix 2.0 (Track A Embedded IoT)
  * 
- * Hardware Connections:
- *   - HC-SR04:   TRIG -> GPIO 0, ECHO -> GPIO 1 (via divider), VCC -> 5V, GND -> GND
- *   - Motor:     Base/Gate -> GPIO 6 (Transistor driver), VCC -> 3V3/5V, GND -> GND
+ * Hardware Connections (Direct Bench Setup):
+ *   - HC-SR04:   TRIG -> GPIO 0, ECHO -> GPIO 1 (Direct connection), VCC -> 5V, GND -> GND
+ *   - Motor:     (+) -> GPIO 6 (Direct GPIO drive), (-) -> GND
  *   - Buzzer:    (+) -> GPIO 7, (-) -> GND (Supports BOTH Active & Passive buzzers)
  *   - Button:    Pin 1 -> GPIO 3, Pin 2 -> GND (INPUT_PULLUP)
  *   - MPU6050:   SDA -> GPIO 4, SCL -> GPIO 5, VCC -> 3V3, GND -> GND

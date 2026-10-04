@@ -65,7 +65,7 @@ intelligent-cane/
 ├── ai-voice-service/                # Phase 3: Cloud/companion VLM + TTS pipeline
 ├── dashboard/                       # Family-facing web dashboard (HTML/JS)
 ├── hardware/                        # Hardware schematics, wiring, and BOM
-│   ├── wiring.md                   # Pinouts, 2N2222 transistor driver, voltage dividers
+│   ├── wiring.md                   # Pinouts, direct bench wiring, production driver circuits
 │   ├── BOM.md                      # Component list and LKR budget tracking
 │   └── README.md
 ├── docs/                            # Architectural specifications & decision logs
@@ -84,15 +84,15 @@ intelligent-cane/
 | Component | Function | ESP32-C3 Pin | Logic Level | Notes |
 |:---|:---|:---:|:---:|:---|
 | **HC-SR04 Ultrasonic** | Trigger Pulse (`TRIG`) | **GPIO 0** | 3.3V Output | 10 µs trigger pulse |
-| **HC-SR04 Ultrasonic** | Echo Pulse (`ECHO`) | **GPIO 1** | 3.3V Input | Voltage divider ($1\text{k}\Omega / 2\text{k}\Omega$) from 5V Echo |
+| **HC-SR04 Ultrasonic** | Echo Pulse (`ECHO`) | **GPIO 1** | 3.3V / 5V | Direct connection on bench build (divider optional for prod) |
 | **MPU6050 (6-Axis IMU)**| I2C Data (`SDA`) | **GPIO 4** | 3.3V | Hardware I2C bus (Address: `0x68`) |
 | **MPU6050 (6-Axis IMU)**| I2C Clock (`SCL`) | **GPIO 5** | 3.3V | Hardware I2C bus |
-| **Haptic Vibration Motor**| Transistor Base/Gate | **GPIO 6** | 3.3V PWM | LEDC 200 Hz PWM (0–255 duty) via 2N2222 driver |
+| **Haptic Vibration Motor**| `(+) / Signal` | **GPIO 6** | 3.3V PWM | Direct GPIO drive on bench build (LEDC 200 Hz PWM) |
 | **Piezo Buzzer** | Audio Alarm (`+`) | **GPIO 7** | 3.3V | Universal driver for active & passive buzzers |
 | **Push Button (SOS)** | Alarm Reset / Emergency | **GPIO 3** | 3.3V Input | Internal `INPUT_PULLUP` enabled (Active LOW) |
 | **Status LED** | Visual Indicator | **GPIO 8** | 3.3V | Onboard SuperMini blue LED (**Active LOW**) |
 
-*Full driver schematics, flyback diode circuit, and voltage divider diagrams are documented in [`hardware/wiring.md`](./hardware/wiring.md).*
+*Full driver schematics, production circuits (transistor driver & voltage divider), and power distribution are documented in [`hardware/wiring.md`](./hardware/wiring.md).*
 
 ---
 
@@ -170,6 +170,6 @@ Sample telemetry stream:
 ## 6. Budget & BOM Summary
 
 Tracked target prototype budget: **LKR 20,000 – 35,000**
-- **Phase 1 Prototype Cost**: **~LKR 9,700** (under LKR 10,000 ceiling)
-- **Total Multi-phase Estimated Cost**: **~LKR 19,550** (achieves full system under target ceiling)
+- **Phase 1 Prototype Cost**: **~LKR 9,500** (under LKR 10,000 ceiling)
+- **Total Multi-phase Estimated Cost**: **~LKR 19,350** (achieves full system under target ceiling)
 - See [`hardware/BOM.md`](./hardware/BOM.md) for individual component pricing and local supplier references.
