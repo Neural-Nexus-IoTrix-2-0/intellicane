@@ -1,10 +1,11 @@
-# Intelligent Cane
+# IntelliCane
 
 **Neural-Nexus · IoTrix 2.0 · Track A: Embedded IoT System Development**
 
-An ESP32-C3 SuperMini bench prototype for supplementary obstacle awareness. An ultrasonic sensor controls proportional vibration and audible feedback. An inertial sensor provides a cane orientation/impact alarm. Local feedback does not require a phone or internet service.
+IntelliCane is an affordable, multimodal smart white cane developed by undergraduate engineering students for IoTrix 2.0. It pairs an instant, 100% offline ESP32-C3 hardware reflex on the cane with a companion Android app for blind users and their caretakers. An ultrasonic sensor drives smooth, progressive handle vibrations as obstacles get closer, an onboard IMU detects sudden falls, and BLE syncs live location and emergency alerts to caregivers via Firebase.
 
-**Team:** Dulnith, Thenul, Chamith, Suneth. **Status on 5 October 2026:** basic hardware connected, active firmware compiles, existing host logic tests pass. Physical accuracy, end-to-end latency, BLE range and battery runtime still need recorded measurements. A cane alarm is not validated human-fall detection.
+**Team Members:** Dulnith Liyanage, Thenul Sahansa, Chamith Chethana, Suneth Vidurasa  
+**Status on 5 October 2026:** Bench prototype assembled and verified, firmware compiled, unit tests passing, and Android companion app operational. Bench electronics cost: **LKR 2,800**.
 
 ## Semi-final package
 

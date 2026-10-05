@@ -1,6 +1,6 @@
 # 10-minute evaluation: demonstration and speaking guide
 
-**Neural-Nexus: Dulnith, Thenul, Chamith, Suneth**
+**Team Neural-Nexus: Dulnith Liyanage, Thenul Sahansa, Chamith Chethana, Suneth Vidurasa**
 
 The latest organizer announcement supersedes the PDF's recommended 12-minute session: **4 minutes demonstration, 2 minutes progress check, 4 minutes Q&A**. All four members must attend with cameras on. Slides are optional and receive no separate marks. Show the physical prototype prominently during the demonstration.
 

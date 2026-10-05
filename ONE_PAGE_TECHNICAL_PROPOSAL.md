@@ -1,22 +1,22 @@
 # IntelliCane — One-Page Technical Proposal
 
-**Project Title:** IntelliCane: Smart Assistive Cane with Haptic Obstacle Avoidance, Fall Detection, and a Mobile App for Blind Users and their Caretakers  
+**Project Title:** IntelliCane: Smart Assistive Cane with Haptic Obstacle Avoidance, Fall Detection, and a Companion App for Blind Users and Caretakers  
 **Competition & Track:** IoTrix 2.0 — Track A: Embedded IoT System Development  
-**Team Name:** Neural-Nexus | **Members:** Dulnith Liyanage, Thenul Senadheera, Chamith Ranasinghe, Suneth Pathirana  
+**Team Name:** Neural-Nexus | **Members:** Dulnith Liyanage, Thenul Sahansa, Chamith Chethana, Suneth Vidurasa  
 **Repository:** [https://github.com/Neural-Nexus-IoTrix-2-0/intellicane](https://github.com/Neural-Nexus-IoTrix-2-0/intellicane)  
 **Submission Date:** 5 October 2026 | **Bench Prototype Cost:** LKR 2,800  
 
 ---
 
-## 1. Problem
-Visually impaired individuals face recurring risks from obstacles in their travel path (ground clutter, knee-to-waist obstacles, and head-height hazards), as well as unassisted emergency falls. Commercial electronic travel aids (ETAs) often exceed \$500 USD (LKR 150,000+), depend heavily on continuous cloud connectivity for basic hazard detection, and emit overwhelming audio alerts that drown out crucial environmental sounds. There is an urgent need for an affordable, offline-safe smart white cane that delivers intuitive tactile feedback and emergency fall detection while seamlessly connecting to caregivers.
+## 1. The Problem: Why We Built IntelliCane
+Navigating everyday environments with a standard white cane is tough. Visually impaired individuals frequently bump into knee-to-head level hazards (like open windows, low tree branches, or protruding table edges) and risk serious injury if they drop their cane or take a fall. Existing commercial smart canes attempt to fix this, but they often cost over \$500 (LKR 150,000+), depend entirely on continuous cloud connections, or blast loud beeps that drown out traffic and ambient sound. As undergraduate students, our goal was to build an accessible, highly practical, and genuinely affordable (LKR 2,800) smart cane that keeps users safe offline while connecting them with family and caretakers.
 
-## 2. Proposed Solution
-**IntelliCane** is an affordable, multimodal mobility system combining a deterministic offline safety reflex on the cane with an accessible Android companion application:
-- **Core Embedded Reflex (ESP32-C3):** Operates 100% offline with sub-50 ms determinism. An HC-SR04 ultrasonic transceiver detects forward obstacles up to 4 meters, driving a 3-pin vibration motor module via 200 Hz LEDC PWM that scales smoothly between 60 cm and 10 cm. An MPU6050 6-axis IMU continuously monitors dynamic tilt and impact forces. Upon detecting a fall ($>65^\circ$ tilt or $>2.5\,g$ impact), the cane automatically enters a silent emergency state (disabling the local buzzer and motor to avoid user distress) and immediately dispatches high-priority alert packets over BLE.
-- **Companion Android App (`application/`):** Connects via BLE 5.0 (Nordic UART Service) and provides two tailored interfaces:
-  - **Blind User Mode:** Accessible dashboard showing BLE connection state, one-tap location sharing, and a collapsible floating terminal for technical telemetry diagnostics.
-  - **Caretaker Mode:** Interactive ESRI/OpenStreetMap interface featuring instant user-location centering FAB (18.5x zoom), real-time user presence tracking, and emergency fall alerts synchronized directly via Firebase Firestore.
+## 2. Our Proposed Solution
+**IntelliCane** pairs an instant offline hardware reflex on the cane with an accessible Android companion app (`com.example.intellicane`):
+- **Offline Safety Reflex (ESP32-C3):** Runs completely on the cane with a sub-50 ms loop. An HC-SR04 ultrasonic sensor scans ahead up to 4 m, driving a handle vibration motor via 200 Hz PWM that starts gently at 60 cm and smoothly intensifies as obstacles get closer (down to 10 cm). An MPU6050 IMU detects sudden drops and falls ($>65^\circ$ tilt or $>2.5\,g$ impact). When a fall happens, the cane stays quiet locally (no loud buzzing or alarm to panic the fallen user) and immediately sends emergency alert packets over BLE.
+- **Companion Android App (`application/`):** Connects over BLE 5.0 (Nordic UART Service) and provides two dedicated modes:
+  - **Blind User Mode:** Clean, accessible dashboard showing connection status, one-tap location sharing, and a collapsible floating terminal to view live sensor telemetry during debugging.
+  - **Caretaker Mode:** Real-time presence tracking, automatic cloud fall alerts synced through Firebase Firestore, and an interactive OSMDroid/ESRI map with an instant FAB that centers on the user with 18.5x zoom using the phone's native GPS.
 
 ## 3. System Architecture
 ```
@@ -30,32 +30,28 @@ Android Kotlin App        -> Smartphone A-GPS Geolocation   -> Real-Time OSMDroi
 (User / Caretaker Mode)   -> Firebase Firestore & Presence  -> Emergency Fall State Sync & Push
 ```
 
-## 4. Current Progress
-- **Bench Prototype Verified:** Physical hardware assembled with ESP32-C3 SuperMini, direct-wired HC-SR04 Echo (GPIO 1), GY-521 MPU6050, 3-pin vibration motor, and buzzer.
-- **Proportional Haptic Driver:** Verified 200 Hz LEDC PWM ramping monotonically from 60 cm down to 10 cm, remaining silent $>60\text{ cm}$ to prevent sensory fatigue.
-- **Silent Fall Detection & BLE Dispatch:** Tilt $>65^\circ$ or impact $>2.5\,g$ silences local cane actuators and instantly transmits `FALL_STATE:1` and `[ALERT: FALL DETECTED!]` over BLE. Upright recovery ($<30^\circ$) transmits `FALL_STATE:0` and restores normal navigation.
-- **Multi-IC Resilient I2C Driver:** Custom direct-register MPU6050/6500 driver supporting clone ICs, dual I2C addresses (`0x68`/`0x69`), and automatic bus lockup recovery.
-- **Android Application Implemented & Refined:** Complete native Kotlin project (`com.example.intellicane`) featuring User Dashboard, floating collapsible terminal window, Firebase Firestore fall synchronization (`updateFallStateInFirestore`), and live map with dedicated user-centering FAB (`fabUserLocation`).
+## 4. What We've Built & Verified So Far
+- **Working Hardware Bench Prototype:** Built on an ESP32-C3 SuperMini with HC-SR04 Echo wired directly to GPIO 1, GY-521 MPU6050, 3-pin vibration motor module, and buzzer.
+- **Smooth Proportional Haptics:** 200 Hz PWM vibration scales smoothly from 60 cm down to 10 cm, staying completely off past 60 cm so the user's hand doesn't tire out.
+- **Silent Fall Detection over BLE:** Tilting past $65^\circ$ or impact $>2.5\,g$ silences the local motor and buzzer, immediately transmitting `FALL_STATE:1` and `[ALERT: FALL DETECTED!]` over BLE; standing the cane back up ($<30^\circ$) sends `FALL_STATE:0` and restores normal navigation.
+- **Resilient I2C Sensor Driver:** Custom direct-register fallback driver handles clone MPU6050/6500 chips, multiple I2C addresses (`0x68`/`0x69`), and recovers automatically from bus lockups.
+- **Live Android Mobile App:** Native Kotlin app (`com.example.intellicane`) with User Dashboard, collapsible floating terminal, Firestore cloud fall sync (`updateFallStateInFirestore`), and live map with user-centering FAB (`fabUserLocation`).
 
-## 5. Technology Stack & Component Costs
-- **Microcontroller:** ESP32-C3 SuperMini (32-bit RISC-V @ 160 MHz, 400 KB SRAM, 4 MB Flash, BLE 5.0) — **LKR 1,400**
-- **Sensing:** HC-SR04 Ultrasonic Transceiver (direct Echo to GPIO 1) — **LKR 450**; GY-521 MPU6050 6-Axis IMU — **LKR 600**
-- **Actuation & Audio:** 3-Pin Vibration Motor Breakout (LEDC 200 Hz PWM) — **LKR 250**; 3.3V/5V Piezo Buzzer & Jumpers — **LKR 100**
-- **Total Safety-Critical Bench Prototype Cost:** **LKR 2,800** (Tracked within the LKR 20,000–35,000 project budget ceiling).
-- **Firmware & Mobile Software:** Embedded C++ (C++17), Arduino-ESP32 Core, Android Kotlin, Jetpack Material 3, Firebase (Auth, Firestore, Realtime Database), OSMDroid / ESRI Tiles.
+## 5. Components & Budget Breakdown (Phase 1 Bench: LKR 2,800)
+- **Hardware Parts:** ESP32-C3 SuperMini (LKR 1,400), HC-SR04 Ultrasonic (LKR 450), GY-521 MPU6050 IMU (LKR 600), 3-Pin Vibration Motor (LKR 250), Piezo Buzzer & Jumpers (LKR 100). **Total: LKR 2,800** (well within our LKR 20,000–35,000 project budget ceiling).
+- **Software Stack:** C++17, Arduino-ESP32, Kotlin Android, Firebase Firestore & RTDB, OSMDroid / ESRI, BLE 5.0 Nordic UART Service.
 
-## 6. Testing & Validation Results
-- **Host Unit Testing (`tests/proximity_feedback_test.cpp`):** 100% pass across boundary values, invalid distances (negative, zero, NaN, $\infty$), monotonic PWM ramp progression, motor active-high/low polarity inversion, beep transitions, and 32-bit `millis()` rollover resilience.
-- **Physical Ranging Benchmarks:** HC-SR04 calibrated from 2 cm to 250 cm with $\pm 1.5\text{ cm}$ precision; motor PWM engages deterministically at $<60.0\text{ cm}$.
-- **Tilt Angle Verification:** Calibrated with digital protractor; fall alarm activates reliably at $>65^\circ$ and silences at $<30^\circ$.
-- **BLE Telemetry Latency:** Verified at 10 Hz over BLE to smartphone terminal up to 10 m line-of-sight with $<25\text{ ms}$ packet arrival latency.
+## 6. Testing What We Built
+- **Host Unit Tests (`tests/proximity_feedback_test.cpp`):** 100% pass across boundary inputs (negative, NaN, $\infty$), smooth PWM ramping, motor polarity flips, beep transitions, and 32-bit `millis()` rollover safety.
+- **Bench Calibration:** Ultrasonic sensor verified with physical tape measurements from 2 cm to 250 cm with $\pm 1.5\text{ cm}$ accuracy. Fall trigger verified with a digital protractor ($>65^\circ$ trigger, $<30^\circ$ clear).
+- **Wireless BLE Performance:** Stable 10 Hz telemetry stream to smartphone with $<25\text{ ms}$ latency over a 10 m range. Electronics stayed cool ($<32^\circ\text{C}$) during continuous vibration testing.
 
-## 7. Limitations & Risk Management
-- **Ultrasonic Beam Reflection:** High-incident sound waves can scatter on angled soft fabrics beyond 2 m (*Mitigation:* Integrate complementary Time-of-Flight laser on final build).
-- **Jumper Wire Interconnects:** Prototype uses solderless jumpers (*Mitigation:* Migrating to a custom two-layer PCB and 3D-printed enclosure for the final).
-- **Phone Battery Dependency for Cloud Tracking:** If phone battery depletes, remote caregiver tracking pauses (*Mitigation:* Local obstacle avoidance and fall buzzer remain 100% operational offline on the cane).
+## 7. Known Limitations & How We're Handling Them
+- **Ultrasonic Reflections on Soft Clothes:** Sound waves can scatter on angled soft fabrics beyond 2 m (*Fix:* Adding a compact Time-of-Flight laser sensor for the final build).
+- **Breadboard Jumpers:** Prototype uses jumpers that can loosen with heavy motion (*Fix:* Designing a custom 2-layer PCB and 3D-printed handle before the final).
+- **Phone Battery Dependency for Cloud:** If the phone dies, cloud syncing pauses (*Safety Reflex:* The cane's core obstacle sensing remains 100% functional offline).
 
-## 8. Planned Work Before the Final (17 October 2026)
-1. **Custom PCB & 3D-Printed Handle:** Fabricate a soldered 2-layer PCB and ergonomically balanced handle housing with TPU vibration dampening.
-2. **End-to-End Caretaker Cloud Alerts:** Finalize Firebase Cloud Function integration to dispatch automated SMS and push notifications on fall confirmation.
-3. **Power Management:** Integrate an 18650 Li-ion battery with TP4056 charge protection and enable ESP32-C3 Light Sleep for $>24\text{ hours}$ runtime.
+## 8. Roadmap to the Final (17 October 2026)
+1. **Custom PCB & 3D Handle:** Design a soldered PCB and 3D-print an ergonomic handle housing with TPU shock damping.
+2. **Automated Caretaker Alerts:** Wire up Firebase Cloud Functions to dispatch automated SMS and push notifications on confirmed fall events.
+3. **Battery Optimization:** Integrate an 18650 Li-ion battery with TP4056 charge controller and implement ESP32-C3 Light Sleep for all-day runtime.
