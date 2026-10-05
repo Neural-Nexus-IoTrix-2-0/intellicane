@@ -8,19 +8,25 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
-import android.content.Context
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -33,23 +39,61 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.textfield.TextInputEditText
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ServerValue
+import com.google.firebase.database.ValueEventListener
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import java.text.SimpleDateFormat
 import java.util.ArrayDeque
+import java.util.Locale
 import java.util.Queue
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var prefs: SharedPreferences
+    private lateinit var auth: FirebaseAuth
+    private lateinit var db: FirebaseFirestore
+    private var isSignUpMode = false
+
+    private lateinit var layoutAuth: CardView
+    private lateinit var tvAuthTitle: TextView
+    private lateinit var etEmail: TextInputEditText
+    private lateinit var etPassword: TextInputEditText
+    private lateinit var btnSubmitAuth: Button
+    private lateinit var tvToggleAuthMode: TextView
+
+    private lateinit var layoutLoading: LinearLayout
+    private lateinit var progressBar: ProgressBar
+    private lateinit var tvLoadingMessage: TextView
+
+    private lateinit var layoutTopBar: LinearLayout
+    private lateinit var btnSignOut: Button
+    private lateinit var btnBluetooth: Button
+    private lateinit var btnToggleLocationSharing: Button
+
+    private lateinit var cardCaretakerStatus: CardView
+    private lateinit var tvUserPresenceStatus: TextView
+    private lateinit var tvLocationSharingStatus: TextView
+    private lateinit var tvLastLocationTime: TextView
+
     private lateinit var layoutSelection: LinearLayout
     private lateinit var btnUser: Button
     private lateinit var btnCaretaker: Button
-    private lateinit var btnBluetooth: Button
 
     private lateinit var cardTerminal: CardView
     private lateinit var scrollTerminal: ScrollView
@@ -59,15 +103,42 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cardMap: CardView
     private lateinit var mapView: MapView
     private lateinit var fabMyLocation: FloatingActionButton
-    private var currentMarker: Marker? = null
+    private var userMarker: Marker? = null
+    private var caretakerMarker: Marker? = null
     private var lastLocation: Location? = null
 
+    // Bluetooth
     private var bluetoothGatt: BluetoothGatt? = null
     private var isConnected = false
     private val targetMacAddress = "48:F6:EE:17:C3:42"
 
     private val cccDescriptorUuid: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     private val descriptorQueue: Queue<Pair<BluetoothGattCharacteristic, BluetoothGattDescriptor>> = ArrayDeque()
+
+    // Presence & Location Sharing
+    private var presenceRef: DatabaseReference? = null
+    private var connectedRef: DatabaseReference? = null
+    private var connectedValueListener: ValueEventListener? = null
+
+    private var isLocationSharingActive = false
+    private val locationSharingHandler = Handler(Looper.getMainLooper())
+    private val locationSharingRunnable = object : Runnable {
+        override fun run() {
+            if (isLocationSharingActive) {
+                sendCurrentLocationToFirestore()
+                locationSharingHandler.postDelayed(this, 30000L) // every 30 seconds
+            }
+        }
+    }
+
+    // Caretaker Monitoring Listeners
+    private var pairedPresenceRef: DatabaseReference? = null
+    private var pairedPresenceListener: ValueEventListener? = null
+    private var pairedLocationRegistration: ListenerRegistration? = null
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
 
     private val esriTileSource = object : OnlineTileSourceBase(
         "Esri_WorldStreetMap",
@@ -84,7 +155,9 @@ class MainActivity : AppCompatActivity() {
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             lastLocation = location
-            updateMapLocation(location.latitude, location.longitude)
+            if (isLocationSharingActive) {
+                sendCurrentLocationToFirestore()
+            }
         }
 
         @Deprecated("Deprecated in Java")
@@ -99,8 +172,11 @@ class MainActivity : AppCompatActivity() {
         val granted = permissions.entries.any { it.value }
         if (granted) {
             startLocationUpdates()
+            if (isLocationSharingActive) {
+                requestFreshLocationForUser()
+            }
         } else {
-            Toast.makeText(this, "Location permission is required to display your current location on the map.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Location permission is required for location tracking.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -265,7 +341,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Set User-Agent for OSMDroid
+        auth = FirebaseAuth.getInstance()
+        db = FirebaseFirestore.getInstance()
+
         Configuration.getInstance().userAgentValue = "IntelliCaneApp/1.0 (Android; Navigation)"
         Configuration.getInstance().load(applicationContext, getSharedPreferences("osm_prefs", MODE_PRIVATE))
 
@@ -277,11 +355,39 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        // Auth UI
+        layoutAuth = findViewById(R.id.layoutAuth)
+        tvAuthTitle = findViewById(R.id.tvAuthTitle)
+        etEmail = findViewById(R.id.etEmail)
+        etPassword = findViewById(R.id.etPassword)
+        btnSubmitAuth = findViewById(R.id.btnSubmitAuth)
+        tvToggleAuthMode = findViewById(R.id.tvToggleAuthMode)
+
+        // Loading Overlay
+        layoutLoading = findViewById(R.id.layoutLoading)
+        progressBar = findViewById(R.id.progressBar)
+        tvLoadingMessage = findViewById(R.id.tvLoadingMessage)
+
+        // Top Bar
+        layoutTopBar = findViewById(R.id.layoutTopBar)
+        btnSignOut = findViewById(R.id.btnSignOut)
+        btnBluetooth = findViewById(R.id.btnBluetooth)
+        btnToggleLocationSharing = findViewById(R.id.btnToggleLocationSharing)
+
+        // Caretaker Status
+        cardCaretakerStatus = findViewById(R.id.cardCaretakerStatus)
+        tvUserPresenceStatus = findViewById(R.id.tvUserPresenceStatus)
+        tvLocationSharingStatus = findViewById(R.id.tvLocationSharingStatus)
+        tvLastLocationTime = findViewById(R.id.tvLastLocationTime)
+
+        cardCaretakerStatus.setOnClickListener {
+            promptForPairedUserUid()
+        }
+
+        // Selection & Mode Views
         layoutSelection = findViewById(R.id.layoutSelection)
         btnUser = findViewById(R.id.btnUser)
         btnCaretaker = findViewById(R.id.btnCaretaker)
-        btnBluetooth = findViewById(R.id.btnBluetooth)
 
         cardTerminal = findViewById(R.id.cardTerminal)
         scrollTerminal = findViewById(R.id.scrollTerminal)
@@ -301,18 +407,47 @@ class MainActivity : AppCompatActivity() {
 
         fabMyLocation.setOnClickListener {
             lastLocation?.let {
-                updateMapLocation(it.latitude, it.longitude)
+                updateCaretakerMapLocation(it.latitude, it.longitude)
             } ?: run {
                 startLocationUpdates()
             }
         }
 
+        btnToggleLocationSharing.setOnClickListener {
+            if (isLocationSharingActive) {
+                stopLocationSharing()
+            } else {
+                startLocationSharing()
+            }
+        }
+
+        tvToggleAuthMode.setOnClickListener {
+            isSignUpMode = !isSignUpMode
+            if (isSignUpMode) {
+                tvAuthTitle.text = "Create a new account"
+                btnSubmitAuth.text = "Create account"
+                tvToggleAuthMode.text = "Already have an account? Sign In"
+            } else {
+                tvAuthTitle.text = "Sign In to your account"
+                btnSubmitAuth.text = "Sign In"
+                tvToggleAuthMode.text = "Don't have an account? Sign Up"
+            }
+        }
+
+        btnSubmitAuth.setOnClickListener {
+            handleAuthSubmit()
+        }
+
+        btnSignOut.setOnClickListener {
+            signOutUser()
+        }
+
         btnUser.setOnClickListener {
-            saveAndSetMode("User")
+            saveUserRoleToFirestore("user")
         }
 
         btnCaretaker.setOnClickListener {
-            saveAndSetMode("Caretaker")
+            saveUserRoleToFirestore("caretaker")
         }
 
         btnBluetooth.setOnClickListener {
@@ -327,40 +462,549 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        checkAndShowModeSelection()
+        checkAuthState()
     }
 
-    private fun checkAndShowModeSelection() {
-        val savedMode = prefs.getString("user_mode", null)
-        if (savedMode == null) {
-            layoutSelection.visibility = View.VISIBLE
-            btnBluetooth.visibility = View.GONE
+    private fun promptForPairedUserUid() {
+        val input = TextInputEditText(this)
+        input.hint = "User Firebase UID (e.g. abc123xyz)"
+
+        AlertDialog.Builder(this)
+            .setTitle("Pair User UID")
+            .setMessage("Enter the Firebase Auth UID of the user account you want to monitor:")
+            .setView(input)
+            .setPositiveButton("Save & Monitor") { _, _ ->
+                val userUid = input.text?.toString()?.trim() ?: ""
+                if (userUid.isNotEmpty()) {
+                    val caretakerUid = auth.currentUser?.uid ?: return@setPositiveButton
+                    val updateData = mapOf("pairedUserUid" to userUid)
+                    db.collection("users").document(caretakerUid).set(updateData, SetOptions.merge())
+                        .addOnSuccessListener {
+                            Toast.makeText(this, "Paired user UID saved!", Toast.LENGTH_SHORT).show()
+                            startCaretakerMonitoring(userUid)
+                        }
+                        .addOnFailureListener { e ->
+                            Toast.makeText(this, "Failed to save pairing: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                        }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun checkAuthState() {
+        val currentUser = auth.currentUser
+        if (currentUser == null) {
+            stopUserPresence()
+            stopCaretakerMonitoring()
+            hideLoading()
+            layoutAuth.visibility = View.VISIBLE
+            layoutTopBar.visibility = View.GONE
+            cardCaretakerStatus.visibility = View.GONE
+            layoutSelection.visibility = View.GONE
             cardTerminal.visibility = View.GONE
             cardMap.visibility = View.GONE
         } else {
-            layoutSelection.visibility = View.GONE
-            updateUIForMode(savedMode)
+            layoutAuth.visibility = View.GONE
+            layoutTopBar.visibility = View.VISIBLE
+            setupUserPresence(currentUser.uid)
+            requestNotificationPermission()
+            loadUserRoleFromFirestore(currentUser.uid)
         }
     }
 
-    private fun saveAndSetMode(mode: String) {
-        prefs.edit().putString("user_mode", mode).apply()
-        layoutSelection.visibility = View.GONE
-        updateUIForMode(mode)
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
-    private fun updateUIForMode(mode: String) {
-        if (mode == "User") {
+    private fun setupUserPresence(userUid: String) {
+        val rtdb = FirebaseDatabase.getInstance()
+        presenceRef = rtdb.getReference("status/users/$userUid")
+        connectedRef = rtdb.getReference(".info/connected")
+
+        connectedValueListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val connected = snapshot.getValue(Boolean::class.java) ?: false
+                if (connected) {
+                    presenceRef?.onDisconnect()?.setValue(
+                        mapOf("state" to "offline", "lastChanged" to ServerValue.TIMESTAMP)
+                    )
+                    presenceRef?.setValue(
+                        mapOf("state" to "online", "lastChanged" to ServerValue.TIMESTAMP)
+                    )
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        connectedRef?.addValueEventListener(connectedValueListener as ValueEventListener)
+    }
+
+    private fun stopUserPresence() {
+        connectedValueListener?.let { connectedRef?.removeEventListener(it) }
+        presenceRef?.setValue(mapOf("state" to "offline", "lastChanged" to ServerValue.TIMESTAMP))
+        connectedValueListener = null
+        connectedRef = null
+        presenceRef = null
+    }
+
+    private fun startLocationSharing() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+            return
+        }
+
+        isLocationSharingActive = true
+        btnToggleLocationSharing.text = "Stop Sharing"
+        btnToggleLocationSharing.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F44336"))
+
+        startLocationUpdates()
+        requestFreshLocationForUser()
+
+        locationSharingHandler.removeCallbacks(locationSharingRunnable)
+        locationSharingHandler.post(locationSharingRunnable)
+        Toast.makeText(this, "Location sharing started (updates every 30s)", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopLocationSharing() {
+        isLocationSharingActive = false
+        locationSharingHandler.removeCallbacks(locationSharingRunnable)
+        btnToggleLocationSharing.text = "Share Loc"
+        btnToggleLocationSharing.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2196F3"))
+
+        val uid = auth.currentUser?.uid ?: return
+        val stopMap = mapOf(
+            "sharing" to false,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+        db.collection("users").document(uid).collection("location").document("current")
+            .set(stopMap, SetOptions.merge())
+
+        Toast.makeText(this, "Location sharing stopped", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun requestFreshLocationForUser() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+
+        val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+        if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            if (lastGps != null) {
+                lastLocation = lastGps
+                sendCurrentLocationToFirestore()
+                return
+            }
+        }
+        if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            if (lastNet != null) {
+                lastLocation = lastNet
+                sendCurrentLocationToFirestore()
+            }
+        }
+    }
+
+    private fun sendCurrentLocationToFirestore() {
+        val uid = auth.currentUser?.uid ?: return
+        val loc = lastLocation
+        if (loc != null) {
+            val locationData = mapOf(
+                "sharing" to true,
+                "latitude" to loc.latitude,
+                "longitude" to loc.longitude,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            db.collection("users").document(uid).collection("location").document("current")
+                .set(locationData, SetOptions.merge())
+                .addOnSuccessListener {
+                    logToTerminal("[SYS] Location sent to Firestore: ${loc.latitude}, ${loc.longitude}")
+                }
+                .addOnFailureListener { e ->
+                    logToTerminal("[SYS] Failed to send location: ${e.localizedMessage}")
+                }
+        } else {
+            requestFreshLocationForUser()
+        }
+    }
+
+    private fun loadUserRoleFromFirestore(uid: String) {
+        showLoading("Loading account role...")
+        layoutSelection.visibility = View.GONE
+        cardTerminal.visibility = View.GONE
+        cardMap.visibility = View.GONE
+        cardCaretakerStatus.visibility = View.GONE
+
+        db.collection("users").document(uid).get()
+            .addOnSuccessListener { documentSnapshot ->
+                hideLoading()
+                if (documentSnapshot.exists()) {
+                    val rawRole = documentSnapshot.getString("role")?.lowercase()
+                    when (rawRole) {
+                        "user" -> updateUIForRole("user", documentSnapshot.data)
+                        "caretaker" -> updateUIForRole("caretaker", documentSnapshot.data)
+                        else -> showRoleSelectionScreen()
+                    }
+                } else {
+                    showRoleSelectionScreen()
+                }
+            }
+            .addOnFailureListener { exception ->
+                hideLoading()
+                showRetryDialog(
+                    title = "Connection Error",
+                    message = "Failed to load user profile: ${exception.localizedMessage}",
+                    onRetry = { loadUserRoleFromFirestore(uid) },
+                    onCancel = { signOutUser() }
+                )
+            }
+    }
+
+    private fun saveUserRoleToFirestore(selectedRole: String) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            showErrorDialog("Error", "You must be signed in to select a role.")
+            checkAuthState()
+            return
+        }
+
+        showLoading("Saving selected role...")
+        layoutSelection.visibility = View.GONE
+
+        val updateData = mapOf("role" to selectedRole)
+        db.collection("users").document(uid).set(updateData, SetOptions.merge())
+            .addOnSuccessListener {
+                hideLoading()
+                Toast.makeText(this, "Role saved as $selectedRole", Toast.LENGTH_SHORT).show()
+                loadUserRoleFromFirestore(uid)
+            }
+            .addOnFailureListener { exception ->
+                hideLoading()
+                showRetryDialog(
+                    title = "Save Error",
+                    message = "Failed to save user role: ${exception.localizedMessage}",
+                    onRetry = { saveUserRoleToFirestore(selectedRole) },
+                    onCancel = { showRoleSelectionScreen() }
+                )
+            }
+    }
+
+    private fun showRoleSelectionScreen() {
+        hideLoading()
+        layoutSelection.visibility = View.VISIBLE
+        btnBluetooth.visibility = View.GONE
+        btnToggleLocationSharing.visibility = View.GONE
+        cardTerminal.visibility = View.GONE
+        cardMap.visibility = View.GONE
+        cardCaretakerStatus.visibility = View.GONE
+    }
+
+    private fun showLoading(message: String) {
+        tvLoadingMessage.text = message
+        layoutLoading.visibility = View.VISIBLE
+    }
+
+    private fun hideLoading() {
+        layoutLoading.visibility = View.GONE
+    }
+
+    private fun showRetryDialog(title: String, message: String, onRetry: () -> Unit, onCancel: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setCancelable(false)
+            .setPositiveButton("Retry") { _, _ -> onRetry() }
+            .setNegativeButton("Cancel") { _, _ -> onCancel() }
+            .show()
+    }
+
+    private fun handleAuthSubmit() {
+        val email = etEmail.text?.toString()?.trim() ?: ""
+        val password = etPassword.text?.toString()?.trim() ?: ""
+
+        if (email.isEmpty()) {
+            etEmail.error = "Email address is required"
+            return
+        }
+
+        if (password.isEmpty()) {
+            etPassword.error = "Password is required"
+            return
+        }
+
+        if (password.length < 6) {
+            etPassword.error = "Password must be at least 6 characters"
+            return
+        }
+
+        btnSubmitAuth.isEnabled = false
+
+        if (isSignUpMode) {
+            auth.createUserWithEmailAndPassword(email, password)
+                .addOnCompleteListener(this) { task ->
+                    btnSubmitAuth.isEnabled = true
+                    if (task.isSuccessful) {
+                        Toast.makeText(this, "Account created successfully!", Toast.LENGTH_SHORT).show()
+                        etEmail.text?.clear()
+                        etPassword.text?.clear()
+                        checkAuthState()
+                    } else {
+                        val error = task.exception?.localizedMessage ?: "Registration failed."
+                        showErrorDialog("Sign Up Error", error)
+                    }
+                }
+        } else {
+            auth.signInWithEmailAndPassword(email, password)
+                .addOnCompleteListener(this) { task ->
+                    btnSubmitAuth.isEnabled = true
+                    if (task.isSuccessful) {
+                        Toast.makeText(this, "Welcome back!", Toast.LENGTH_SHORT).show()
+                        etEmail.text?.clear()
+                        etPassword.text?.clear()
+                        checkAuthState()
+                    } else {
+                        val error = task.exception?.localizedMessage ?: "Sign-in failed."
+                        showErrorDialog("Sign In Error", error)
+                    }
+                }
+        }
+    }
+
+    private fun signOutUser() {
+        if (isConnected) {
+            disconnectBluetoothDevice()
+        }
+        if (isLocationSharingActive) {
+            stopLocationSharing()
+        }
+        stopCaretakerMonitoring()
+        stopUserPresence()
+        auth.signOut()
+        Toast.makeText(this, "Signed out successfully", Toast.LENGTH_SHORT).show()
+        checkAuthState()
+    }
+
+    private fun updateUIForRole(role: String, profileData: Map<String, Any>?) {
+        hideLoading()
+        layoutAuth.visibility = View.GONE
+        layoutTopBar.visibility = View.VISIBLE
+        layoutSelection.visibility = View.GONE
+
+        if (role == "user") {
+            stopCaretakerMonitoring()
             btnBluetooth.visibility = View.VISIBLE
+            btnToggleLocationSharing.visibility = View.VISIBLE
             cardTerminal.visibility = View.VISIBLE
             cardMap.visibility = View.GONE
+            cardCaretakerStatus.visibility = View.GONE
             updateBluetoothButtonState()
-        } else {
+            startLocationUpdates()
+        } else if (role == "caretaker") {
             btnBluetooth.visibility = View.GONE
+            btnToggleLocationSharing.visibility = View.GONE
             cardTerminal.visibility = View.GONE
             cardMap.visibility = View.VISIBLE
-            startLocationUpdates()
+            cardCaretakerStatus.visibility = View.VISIBLE
+
+            findAndMonitorPairedUser(profileData)
+        } else {
+            showRoleSelectionScreen()
         }
+    }
+
+    private fun findAndMonitorPairedUser(profileData: Map<String, Any>?) {
+        tvUserPresenceStatus.text = "Presence: Locating user..."
+        tvLocationSharingStatus.text = "Sharing: Locating user..."
+        tvLastLocationTime.text = "Checking database..."
+
+        // 1. Check direct profile fields
+        val explicitPairedUid = profileData?.get("pairedUserUid") as? String
+            ?: profileData?.get("caretakerUid") as? String
+
+        if (!explicitPairedUid.isNullOrEmpty()) {
+            startCaretakerMonitoring(explicitPairedUid)
+        } else {
+            tvUserPresenceStatus.text = "Presence: Unpaired"
+            tvLocationSharingStatus.text = "Sharing: Unpaired"
+            tvLastLocationTime.text = "Tap here to enter paired User's UID."
+        }
+    }
+
+    private fun startCaretakerMonitoring(pairedUserUid: String) {
+        stopCaretakerMonitoring()
+
+        tvUserPresenceStatus.text = "Presence: Connecting..."
+        tvLocationSharingStatus.text = "Sharing: Connecting..."
+
+        // 1. Listen to Realtime Database presence for paired user
+        val rtdb = FirebaseDatabase.getInstance()
+        pairedPresenceRef = rtdb.getReference("status/users/$pairedUserUid")
+        pairedPresenceListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val state = snapshot.child("state").getValue(String::class.java)
+                if (state == "online") {
+                    tvUserPresenceStatus.text = "Presence: Online"
+                    tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
+                } else {
+                    tvUserPresenceStatus.text = "Presence: Offline"
+                    tvUserPresenceStatus.setTextColor(Color.parseColor("#757575"))
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {
+                tvUserPresenceStatus.text = "Presence: Error (${error.message})"
+            }
+        }
+        pairedPresenceRef?.addValueEventListener(pairedPresenceListener as ValueEventListener)
+
+        // 2. Listen directly to Firestore users/{pairedUserUid}/location/current
+        pairedLocationRegistration = db.collection("users")
+            .document(pairedUserUid)
+            .collection("location")
+            .document("current")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                        tvLocationSharingStatus.text = "Sharing: Permission Denied"
+                        tvLocationSharingStatus.setTextColor(Color.parseColor("#F44336"))
+                        tvLastLocationTime.text = "Add 'caretakerUid': '${auth.currentUser?.uid}' to user's profile."
+                    } else {
+                        tvLocationSharingStatus.text = "Sharing: Error (${error.localizedMessage})"
+                        tvLocationSharingStatus.setTextColor(Color.parseColor("#F44336"))
+                        tvLastLocationTime.text = "Error reading location data."
+                    }
+                    return@addSnapshotListener
+                }
+
+                if (snapshot == null || !snapshot.exists()) {
+                    tvLocationSharingStatus.text = "Sharing: Stopped (No data)"
+                    tvLocationSharingStatus.setTextColor(Color.parseColor("#F44336"))
+                    tvLastLocationTime.text = "No location document created yet."
+                    return@addSnapshotListener
+                }
+
+                val isSharing = snapshot.getBoolean("sharing") ?: false
+                val lat = snapshot.getDouble("latitude")
+                val lon = snapshot.getDouble("longitude")
+                val updatedAt = snapshot.getTimestamp("updatedAt")
+
+                val now = System.currentTimeMillis()
+                val updateTimeMillis = updatedAt?.toDate()?.time ?: 0L
+                val isStale = (now - updateTimeMillis) > 90000L // 90 seconds threshold
+
+                if (updatedAt != null) {
+                    val sdf = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
+                    tvLastLocationTime.text = "Last location update: ${sdf.format(updatedAt.toDate())}"
+                } else {
+                    tvLastLocationTime.text = "Last location update: Just now"
+                }
+
+                if (isSharing && !isStale && lat != null && lon != null) {
+                    tvLocationSharingStatus.text = "Sharing: Active"
+                    tvLocationSharingStatus.setTextColor(Color.parseColor("#4CAF50"))
+                    updateUserMapLocation(lat, lon, "User's Location (Active)", Color.parseColor("#E53935")) // Vibrant Red Pin
+                } else if (isSharing && isStale) {
+                    tvLocationSharingStatus.text = "Sharing: Stale (>90s)"
+                    tvLocationSharingStatus.setTextColor(Color.parseColor("#FF9800"))
+                    if (lat != null && lon != null) {
+                        updateUserMapLocation(lat, lon, "User's Location (Stale)", Color.parseColor("#FF9800")) // Orange Pin
+                    }
+                } else {
+                    tvLocationSharingStatus.text = "Sharing: Stopped"
+                    tvLocationSharingStatus.setTextColor(Color.parseColor("#F44336"))
+                    if (lat != null && lon != null) {
+                        updateUserMapLocation(lat, lon, "User's Location (Stopped)", Color.parseColor("#757575")) // Gray Pin
+                    }
+                }
+            }
+    }
+
+    private fun updateUserMapLocation(lat: Double, lon: Double, titleText: String, pinColor: Int = Color.parseColor("#E53935")) {
+        val geoPoint = GeoPoint(lat, lon)
+        mapView.controller.setZoom(18.0)
+        mapView.controller.animateTo(geoPoint)
+
+        userMarker?.let { mapView.overlays.remove(it) }
+        val marker = Marker(mapView)
+        marker.position = geoPoint
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+        marker.title = titleText
+        marker.snippet = "Lat: %.5f, Lon: %.5f".format(lat, lon)
+        marker.icon = createColoredMarkerIcon(pinColor)
+        mapView.overlays.add(marker)
+        userMarker = marker
+        mapView.invalidate()
+    }
+
+    private fun updateCaretakerMapLocation(lat: Double, lon: Double) {
+        val geoPoint = GeoPoint(lat, lon)
+        mapView.controller.setZoom(17.5)
+        mapView.controller.animateTo(geoPoint)
+
+        caretakerMarker?.let { mapView.overlays.remove(it) }
+        val marker = Marker(mapView)
+        marker.position = geoPoint
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+        marker.title = "Caretaker's Location (You)"
+        marker.snippet = "Lat: %.5f, Lon: %.5f".format(lat, lon)
+        marker.icon = createColoredMarkerIcon(Color.parseColor("#2196F3")) // Royal Blue Pin
+        mapView.overlays.add(marker)
+        caretakerMarker = marker
+        mapView.invalidate()
+    }
+
+    private fun createColoredMarkerIcon(colorInt: Int): Drawable {
+        val density = resources.displayMetrics.density
+        val size = (38 * density).toInt()
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = colorInt
+            style = Paint.Style.FILL
+        }
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 3f * density
+        }
+
+        val innerDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+
+        val centerX = size / 2f
+        val centerY = size / 2f
+        val radius = (size / 2f) - (2f * density)
+
+        // Draw outer colored pin circle
+        canvas.drawCircle(centerX, centerY, radius, paint)
+        // Draw white border
+        canvas.drawCircle(centerX, centerY, radius, borderPaint)
+        // Draw inner white center dot
+        canvas.drawCircle(centerX, centerY, radius * 0.35f, innerDotPaint)
+
+        return BitmapDrawable(resources, bitmap)
+    }
+
+    private fun stopCaretakerMonitoring() {
+        pairedPresenceListener?.let { pairedPresenceRef?.removeEventListener(it) }
+        pairedLocationRegistration?.remove()
+        pairedPresenceListener = null
+        pairedPresenceRef = null
+        pairedLocationRegistration = null
     }
 
     private fun startLocationUpdates() {
@@ -382,7 +1026,6 @@ class MainActivity : AppCompatActivity() {
             val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             if (lastGps != null) {
                 lastLocation = lastGps
-                updateMapLocation(lastGps.latitude, lastGps.longitude)
             }
         }
 
@@ -391,25 +1034,8 @@ class MainActivity : AppCompatActivity() {
             val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             if (lastNet != null && lastLocation == null) {
                 lastLocation = lastNet
-                updateMapLocation(lastNet.latitude, lastNet.longitude)
             }
         }
-    }
-
-    private fun updateMapLocation(lat: Double, lon: Double) {
-        val geoPoint = GeoPoint(lat, lon)
-        mapView.controller.setZoom(17.5)
-        mapView.controller.animateTo(geoPoint)
-
-        currentMarker?.let { mapView.overlays.remove(it) }
-        val marker = Marker(mapView)
-        marker.position = geoPoint
-        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        marker.title = "Current Phone Location"
-        marker.snippet = "Lat: %.5f, Lon: %.5f".format(lat, lon)
-        mapView.overlays.add(marker)
-        currentMarker = marker
-        mapView.invalidate()
     }
 
     private fun hasBluetoothPermissions(): Boolean {
@@ -524,6 +1150,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopUserPresence()
+        stopCaretakerMonitoring()
         disconnectBluetoothDevice()
     }
 }
