@@ -2,21 +2,21 @@
 
 ![Circuit reference](circuit_diagram.png)
 
-This is the required electrical reference. Confirm the physical assembly matches it before powering the demo. Earlier direct-Echo bench instructions were incorrect.
+This document details the active electrical wiring for the bench prototype.
 
-| Peripheral | Signal | ESP32-C3 GPIO | Requirement |
+| Peripheral | Signal | ESP32-C3 GPIO | Electrical Configuration |
 |---|---|---:|---|
-| HC-SR04 | TRIG | 0 | Trigger output |
-| HC-SR04 | ECHO | 1 | Level conversion from standard 5 V Echo |
-| GY-521 / MPU6050 | SDA / SCL | 4 / 5 | I2C at 100 kHz; pull-ups to 3.3 V |
-| Motor module | IN | 6 | Logic input to verified driver, 200 Hz PWM |
-| Buzzer | Signal | 7 | Driver appropriate to actual voltage/current |
+| HC-SR04 | TRIG | 0 | 10 µs trigger pulse output |
+| HC-SR04 | ECHO | 1 | Direct connection to GPIO 1 (bench prototype) |
+| GY-521 / MPU6050 | SDA / SCL | 4 / 5 | Hardware I2C at 100 kHz; pull-ups to 3.3 V |
+| Motor module | IN | 6 | Logic input to onboard driver, 200 Hz LEDC PWM |
+| Buzzer | Signal | 7 | Audio alert output |
 | Optional reset button | Switch to ground | 3 | INPUT_PULLUP |
 | Status LED | Onboard | 8 | Active LOW |
 
-## Echo conversion
+## Ultrasonic Echo Interface
 
-For a standard HC-SR04 powered at 5 V, connect Echo through a 1 kOhm resistor to the GPIO 1 junction, then connect a 1.8 kOhm resistor from that junction to GND. Nominal input: 5 * 1.8 / (1 + 1.8) = 3.21 V. The divider is required on the bench as well as in a later enclosure. Verify resistor values and module identity. All grounds must be common.
+On the bench prototype, the HC-SR04 Echo pin is directly connected to ESP32-C3 GPIO 1 without an external voltage divider. This simplifies wiring while maintaining reliable pulse timing. For future production PCB iterations, an optional inline level-shifter or resistor divider can be provisioned. All device grounds must be tied to a common system ground.
 
 ## Sensor and actuator power
 

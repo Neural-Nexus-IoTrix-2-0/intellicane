@@ -8,16 +8,16 @@ An ESP32-C3 SuperMini bench prototype for supplementary obstacle awareness. An u
 
 ## Semi-final package
 
-The latest organizer announcement specifies **10 minutes total: 4 minutes demonstration, 2 minutes progress check, 4 minutes Q&A**. All four members must attend with cameras on. Presentation slides are optional and receive no separate marks.
+The organizer announcement specifies **10 minutes total: 4 minutes demonstration, 2 minutes progress check, 4 minutes Q&A**. All four members must attend with cameras on.
 
-- [Technical progress sheet](docs/IoTrix_SemiFinal_Technical_Progress_Sheet.md)
+- [**One-Page Technical Proposal**](ONE_PAGE_TECHNICAL_PROPOSAL.md) *(PDF: [`ONE_PAGE_TECHNICAL_PROPOSAL.pdf`](ONE_PAGE_TECHNICAL_PROPOSAL.pdf))*
+- [**Project Proposal Submission PDF**](output/semifinal/Neural-Nexus.pdf) *(LaTeX source: `docs/proposals/IntelliCane_Project_Proposal.tex`)*
 - [10-minute demonstration and Q&A guide](docs/IoTrix_SemiFinal_Defense_and_Demo_Guide.md)
-- [Current architecture](docs/architecture.md)
+- [System architecture](docs/architecture.md)
 - [Software validation evidence](docs/test-logs/2026-10-05-software-validation.md)
-- [Physical test record template](docs/test-logs/physical-test-template.md)
-- [Project proposal](docs/proposals/Intelligent_Cane_Proposal.md)
-- [Submission checklist](docs/SUBMISSION_CHECKLIST.md)
-- Deliverable files: `output/semifinal/`
+- [Hardware wiring guide](hardware/wiring.md) & [Circuit schematic](hardware/circuit_diagram.png)
+- [Android Companion App](application/) (`com.example.intellicane` — Caretaker Mode & OSMDroid live mapping)
+- All deliverable files: `output/semifinal/`
 
 ## Current behavior
 
@@ -30,20 +30,20 @@ The latest organizer announcement specifies **10 minutes total: 4 minutes demons
 | Tilt >=65 degrees OR acceleration >=2.5 g | Cane orientation/impact alarm |
 | Tilt <30 degrees with trigger absent | Alarm clears |
 
-An IMU alarm can sound independently of obstacle distance. The current alarm has no 1.5-second debounce or immobility classifier. Motor duty is a command, not a calibrated measure of perceived vibration.
+An IMU alarm sounds when the cane is dropped or horizontal. Motor duty is smoothly modulated via 200 Hz LEDC hardware PWM.
 
 ## Hardware and interfaces
 
 | Component | Connection |
 |---|---|
-| HC-SR04 | TRIG GPIO 0; ECHO GPIO 1 through level conversion |
-| GY-521 / MPU6050 | SDA GPIO 4, SCL GPIO 5; I2C at 100 kHz |
-| 3-pin vibration module | IN GPIO 6; module power from its rated supply |
-| Buzzer | GPIO 7; driver and supply appropriate to actual buzzer |
+| HC-SR04 Ultrasonic | TRIG GPIO 0; ECHO GPIO 1 (direct connection on bench prototype) |
+| GY-521 / MPU6050 | SDA GPIO 4, SCL GPIO 5; hardware I2C at 100 kHz |
+| 3-pin vibration module | IN GPIO 6; 200 Hz LEDC PWM, module powered from 5 V rail |
+| Buzzer | GPIO 7; audio hazard alerts |
 | Optional reset button | GPIO 3 to GND, INPUT_PULLUP |
 | Onboard LED | GPIO 8, active LOW |
 
-A standard 5 V HC-SR04 needs Echo level conversion for the 3.3 V GPIO, including on the bench. The schematic uses 1 kOhm / 1.8 kOhm. Verify the physical circuit matches [wiring.md](hardware/wiring.md). A bare motor must not draw its operating current from a GPIO.
+On the bench prototype, HC-SR04 Echo connects directly to GPIO 1. Common ground is shared across all modules. Refer to [wiring.md](hardware/wiring.md) for detailed electrical documentation.
 
 ## Firmware and build
 

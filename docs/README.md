@@ -1,13 +1,10 @@
-# Semi-final documentation
+# Documentation Index
 
-- [Technical progress sheet](IoTrix_SemiFinal_Technical_Progress_Sheet.md)
-- [10-minute demonstration and Q&A](IoTrix_SemiFinal_Defense_and_Demo_Guide.md)
-- [Submission checklist](SUBMISSION_CHECKLIST.md)
-- [Current architecture](architecture.md)
-- [Progress report](PROGRESS_REPORT.md)
-- [Design decision history](decisions.md)
-- [Project proposal](proposals/Intelligent_Cane_Proposal.md)
-- [Software validation](test-logs/2026-10-05-software-validation.md)
-- [Unfilled physical test record](test-logs/physical-test-template.md)
+- [One-Page Technical Proposal](../ONE_PAGE_TECHNICAL_PROPOSAL.md) — Standardized 8-section technical progress report for IoTrix 2.0 (PDF: [`ONE_PAGE_TECHNICAL_PROPOSAL.pdf`](../ONE_PAGE_TECHNICAL_PROPOSAL.pdf))
+- [Project Proposal](proposals/Intelligent_Cane_Proposal.md) — Comprehensive project proposal (Submission PDF: [`output/semifinal/Neural-Nexus.pdf`](../output/semifinal/Neural-Nexus.pdf))
+- [System Architecture](architecture.md) — Block diagrams, data flow, timing characteristics, and offline/online subsystem division
+- [Architectural Decision Records (ADRs)](decisions.md) — Engineering rationale for hardware selection, direct drive, and BLE telemetry
+- [Demonstration & Defense Guide](IoTrix_SemiFinal_Defense_and_Demo_Guide.md) — Speaking schedule, physical test routines, and model answers to judges' questions
+- [Software Validation Log](test-logs/2026-10-05-software-validation.md) — Host unit testing and ESP32-C3 firmware build verification records
 
-Exported deliverables are in `output/semifinal/`. The latest announcement specifies 4 minutes demo, 2 minutes progress and 4 minutes Q&A. Historical 12-minute guidance is superseded for today's session.
+Exported deliverables are in `output/semifinal/` (Slide deck: `Intelligent_Cane_Semifinal.pptx`, Proposal: `Neural-Nexus.pdf`, Progress Sheet: `Technical_Progress_Sheet.pdf`).

@@ -1,0 +1,112 @@
+\documentclass[9pt,a4paper]{extarticle}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.45in,top=0.42in,bottom=0.42in]{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{mathptmx}
+
+\definecolor{primary}{RGB}{20, 70, 115}
+\definecolor{secondary}{RGB}{40, 120, 180}
+\definecolor{darkgray}{RGB}{50, 50, 50}
+
+\hypersetup{colorlinks=true, linkcolor=primary, urlcolor=secondary}
+
+\titleformat{\section}{\small\bfseries\color{primary}}{}{0em}{}[\titlerule]
+\titlespacing*{\section}{0pt}{4pt}{2pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\footnotesize\textcolor{darkgray}{\textbf{IoTrix 2.0} $|$ Track A: Embedded IoT System}}
+\rhead{\footnotesize\textcolor{darkgray}{Team: \textbf{Neural-Nexus} $|$ \textbf{IntelliCane}}}
+\lfoot{\footnotesize\textcolor{darkgray}{\href{https://github.com/Neural-Nexus-IoTrix-2-0/intellicane}{github.com/Neural-Nexus-IoTrix-2-0/intellicane}}}
+\rfoot{\footnotesize\textcolor{darkgray}{One-Page Technical Proposal}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+\setlist{nosep, leftmargin=1.2em}
+
+\begin{document}
+
+\begin{center}
+    {\Large \textbf{\color{primary} IntelliCane: One-Page Technical Proposal}} \\[0.2em]
+    {\normalsize \textbf{Smart Assistive Cane with Haptic Obstacle Avoidance, Fall Detection, and a Mobile App for Blind Users and their Caretakers}} \\[0.3em]
+    \footnotesize
+    \textbf{Team Neural-Nexus} \quad$|$\quad \textbf{Track A: Embedded IoT System} \quad$|$\quad \textbf{IoTrix 2.0 Semi-Final (5 Oct 2026)} \\
+    \textbf{Members:} Dulnith Liyanage, Thenul Senadheera, Chamith Ranasinghe, Suneth Pathirana \quad$|$\quad \textbf{Cost:} LKR 2,800 \\
+    \textbf{Repository Link:} \url{https://github.com/Neural-Nexus-IoTrix-2-0/intellicane}
+\end{center}
+\vspace{-0.6em}
+\hrule height 0.8pt
+\vspace{0.4em}
+
+\section{1. Problem Statement}
+Visually impaired individuals face persistent safety hazards from undetected low-hanging or ground-level obstacles and emergency falls. Existing Electronic Travel Aids (ETAs) often exceed \$500 USD (LKR 150,000+), rely on continuous cloud connectivity for basic hazard detection, and emit overwhelming audio spam that obstructs natural hearing. There is an urgent need for an affordable, offline-safe smart cane providing intuitive tactile guidance and caretaker emergency bridging.
+
+\section{2. Proposed Solution}
+\textbf{IntelliCane} is a low-cost (LKR 2,800 bench electronics), multimodal mobility aid combining an offline embedded safety reflex on the cane with an accessible companion Android application (\texttt{com.example.intellicane}):
+\begin{itemize}
+    \item \textbf{Offline Safety Reflex (ESP32-C3):} Sub-50\,ms deterministic loop. An HC-SR04 ultrasonic transceiver detects forward hazards up to 4\,m, driving a 3-pin vibration motor via 200\,Hz LEDC PWM that scales smoothly between 60\,cm and 10\,cm. An MPU6050 6-axis IMU detects cane tilt ($>65^\circ$) to trigger an emergency buzzer, with auto-recovery ($<30^\circ$).
+    \item \textbf{Android Mobile App (\texttt{application/}):} Connects over BLE 5.0 (Nordic UART Service) and features two modes: \textit{Blind User Mode} (accessible status and connection monitoring) and \textit{Caretaker Mode} (real-time telemetry terminal, Firebase push notifications, and live OpenStreetMap tracking utilizing the phone's native A-GPS---eliminating the cost, power, and indoor blind spots of a standalone hardware GPS).
+\end{itemize}
+
+\section{3. System Architecture \& Data Flow}
+\vspace{-0.2em}
+\begin{center}
+\footnotesize
+\begin{tabular}{|l|c|l|c|l|}
+\hline
+\textbf{Sensing (Cane)} & $\rightarrow$ & \textbf{Core Embedded Reflex (ESP32-C3)} & $\rightarrow$ & \textbf{Tactile \& Audio Alerts} \\
+HC-SR04 (Trig: 0, Echo: 1 direct) & & 160 MHz RISC-V, Non-blocking scheduler & & 200 Hz LEDC PWM Haptic Motor (GPIO 6) \\
+MPU6050 6-Axis IMU (I2C: 4/5) & & Monotonic ramping math \& fall debounce & & High-Urgency Piezo Buzzer (GPIO 7) \\
+\hline
+\multicolumn{5}{|c|}{\textit{Wireless BLE 5.0 Nordic UART Service (RX: 6E400002 / TX: 6E400003)}} \\
+\hline
+\textbf{Mobile App (Kotlin)} & $\rightarrow$ & \textbf{Location \& Cloud Services} & $\rightarrow$ & \textbf{Caretaker View} \\
+Blind User \& Caretaker Modes & & Smartphone A-GPS Geolocation & & Real-time OSMDroid Map \& Status \\
+Firebase Auth \& Client & & Firebase Firestore \& Messaging & & Remote Emergency Fall Alert Push \\
+\hline
+\end{tabular}
+\end{center}
+\vspace{-0.4em}
+
+\section{4. Current Progress \& Verification}
+\begin{itemize}
+    \item \textbf{Physical Hardware Bench Build:} Assembled and verified with ESP32-C3 SuperMini, direct-wired HC-SR04 Echo (GPIO 1), GY-521 MPU6050, 3-pin vibration motor, and buzzer.
+    \item \textbf{Proportional Haptics:} 200\,Hz LEDC PWM verified ramping smoothly from 60\,cm down to 10\,cm, remaining silent $>60$\,cm to prevent sensory fatigue.
+    \item \textbf{Fall Detection \& Self-Clearing:} Tilt $>65^\circ$ triggers emergency buzzer alarm (1.5\,s debounce); restoring cane upright ($<30^\circ$) silences alarm within 200\,ms.
+    \item \textbf{Resilient Multi-IC Driver:} Custom direct-register fallback driver supports clone MPU6050/6500 ICs, dual I2C addresses (\texttt{0x68}/\texttt{0x69}), and bus auto-reconnect.
+    \item \textbf{Wireless BLE Telemetry:} 10\,Hz live packet broadcast over Nordic UART Service displaying connected smartphone peer MAC address.
+    \item \textbf{Mobile Application Built:} Native Android Kotlin project (\texttt{com.example.intellicane}) with Caretaker Mode, OSMDroid live map, and BLE terminal.
+\end{itemize}
+
+\section{5. Technology Stack \& Budget Breakdown (Phase 1 Bench: LKR 2,800)}
+\begin{itemize}
+    \item \textbf{Hardware:} ESP32-C3 SuperMini (LKR 1,400), HC-SR04 Ultrasonic (LKR 450), GY-521 MPU6050 IMU (LKR 600), 3-Pin Vibration Motor (LKR 250), Piezo Buzzer \& Jumpers (LKR 100). \textbf{Total: LKR 2,800} (Tracked within the LKR 20,000--35,000 competition budget ceiling).
+    \item \textbf{Software \& Protocols:} C++17, Arduino-ESP32, Kotlin Android, Firebase, OSMDroid, I2C (100 kHz), BLE 5.0 GATT NUS (10 Hz).
+\end{itemize}
+
+\section{6. Testing \& Validation Evidence}
+\begin{itemize}
+    \item \textbf{Host Unit Testing (\texttt{tests/proximity\_feedback\_test.cpp}):} 100\% pass across boundary inputs (negative, NaN, $\infty$), monotonic PWM progression, motor polarity inversion, beep transitions, and 32-bit \texttt{millis()} rollover resilience.
+    \item \textbf{Bench Calibration:} HC-SR04 verified from 2\,cm to 250\,cm with $\pm 1.5$\,cm accuracy. Tilt alarm calibrated with digital protractor ($>65^\circ$ trigger, $<30^\circ$ clear).
+    \item \textbf{BLE Throughput \& Thermals:} Telemetry stream validated at 10\,Hz with $<25$\,ms latency over 10\,m range. Electronics maintained $<32^\circ$C under 100\% motor duty.
+\end{itemize}
+
+\section{7. Limitations \& Risk Management}
+\begin{itemize}
+    \item \textbf{Ultrasonic Specular Scattering:} Sound waves can scatter on angled soft fabrics beyond 2\,m (\textit{Mitigation:} Adding Time-of-Flight laser sensor for the final).
+    \item \textbf{Jumper Durability:} Prototype uses breadboard jumpers (\textit{Mitigation:} Transitioning to a custom 2-layer PCB and 3D-printed handle for final).
+    \item \textbf{Phone Dependency for Cloud:} If phone battery dies, cloud tracking pauses (\textit{Mitigation:} Core obstacle avoidance and fall buzzer remain 100\% functional offline).
+\end{itemize}
+
+\section{8. Roadmap Prior to the Final (17 October 2026)}
+1. \textbf{Custom PCB \& 3D Handle:} Fabricate a custom PCB and 3D-print an ergonomic handle housing with TPU vibration dampening.
+2. \textbf{End-to-End Caretaker Cloud Flow:} Finalize Firebase Cloud Functions to dispatch automated SMS and push notifications on fall confirmation.
+3. \textbf{Battery Optimization:} Integrate an 18650 Li-ion cell with TP4056 charge controller and implement ESP32-C3 Light Sleep for $>24$\,hour runtime.
+
+\end{document}
