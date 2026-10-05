@@ -20,15 +20,15 @@ IntelliCane connects an embedded ESP32-C3 SuperMini on the cane with an accessib
 
 The cane's microcontroller handles safety reflexes locally in a sub-50 ms cooperative loop without any blocking delays:
 - **Hardware Sensing:** HC-SR04 Echo connects directly to GPIO 1, and the MPU6050 runs over I2C (GPIO 4/5) with our custom direct-register fallback driver.
-- **Companion Android App (`application/`):** Connects via BLE 5.0 Nordic UART Service. It provides a high-contrast **Blind User Dashboard** with one-tap location sharing, a **collapsible floating terminal** to inspect live sensor feeds, **Caretaker Mode** with an interactive OSMDroid/ESRI map with a dedicated centering FAB (18.5x zoom), and **Firebase Cloud Firestore synchronization with high-priority push notifications** (`showFallAlertNotification`) that trigger emergency sound and vibration on the caretaker's phone the moment a fall is detected. Using the phone's native GPS eliminates the cost, weight, and battery drain of a dedicated GPS module on the cane.
+- **Companion Android App (`application/`):** Connects via BLE 5.0 Nordic UART Service. It provides a high-contrast **Blind User Dashboard** with one-tap location sharing, a **collapsible floating terminal** to inspect live sensor feeds, **Caretaker Mode** with an interactive OSMDroid/ESRI map with a dedicated centering FAB (18.5x zoom), and **Firebase Cloud Firestore synchronization with automated SMS emergency alerts and high-priority push notifications** (`showFallAlertNotification`) that trigger emergency sound and vibration on the caretaker's phone the moment a fall is detected. Using the phone's native GPS eliminates the cost, weight, and battery drain of a dedicated GPS module on the cane.
 
 ## Technology & Components
 
 - **MCU:** ESP32-C3 SuperMini (RISC-V 160 MHz, BLE 5.0, USB-C) — **LKR 1,400**
 - **Sensors:** HC-SR04 Ultrasonic (direct Echo to GPIO 1) — **LKR 450**; GY-521 MPU6050 6-Axis IMU — **LKR 600**
 - **Actuators:** 3-pin vibration motor module (200 Hz PWM) — **LKR 250**; Piezo buzzer & wiring — **LKR 100**
-- **Total Bench Electronics Cost:** **LKR 2,800** (well within our LKR 20,000–35,000 competition budget ceiling).
-- **Software:** C++17, Arduino-ESP32, Kotlin Android, Firebase Firestore & RTDB, OSMDroid / ESRI maps, BLE Nordic UART Service.
+- **Total Bench Electronics Cost:** **LKR 2,800**.
+- **Software:** C++17, Arduino-ESP32, Kotlin Android (`application/`), Firebase Firestore & RTDB, OSMDroid / ESRI maps, BLE Nordic UART Service.
 
 ## Testing What We Built
 
@@ -45,9 +45,9 @@ The cane's microcontroller handles safety reflexes locally in a sub-50 ms cooper
 
 ## Roadmap to the Final (17 October 2026)
 
-1. **Custom PCB & 3D Handle:** Design a clean soldered PCB and 3D-print an ergonomic handle housing.
-2. **Automated Emergency Cloud Alerts:** Finalize Firebase Cloud Functions to dispatch automated SMS and push notifications on verified fall events.
-3. **Battery & Power Optimization:** Integrate an 18650 Li-ion battery with TP4056 charge controller and configure ESP32-C3 Light Sleep for all-day runtime.
+1. **Custom PCB & 3D Handle:** Design a clean soldered PCB and 3D-print an ergonomic handle housing with TPU shock damping.
+2. **Battery & Power Optimization:** Integrate an 18650 Li-ion battery with TP4056 charge controller and configure ESP32-C3 Light Sleep for all-day runtime.
+3. **Secondary ToF Laser Sensor:** Add a compact Time-of-Flight laser ranging sensor to supplement ultrasonic detection in crowded spaces.
 
 ## Deliverables
 

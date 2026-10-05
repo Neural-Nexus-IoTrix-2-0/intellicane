@@ -16,8 +16,7 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 - [10-minute demonstration and Q&A guide](docs/IoTrix_SemiFinal_Defense_and_Demo_Guide.md)
 - [System architecture](docs/architecture.md)
 - [Software validation evidence](docs/test-logs/2026-10-05-software-validation.md)
-- [Hardware wiring guide](hardware/wiring.md) & [Circuit schematic](hardware/circuit_diagram.png)
-- [Android Companion App](application/) (`com.example.intellicane` — User Dashboard, Caretaker Mode, live GPS map, and instant emergency push notifications with sound & vibration on fall detection)
+- [Android Companion App](application/) (`application/` — User Dashboard, Caretaker Mode, live GPS map, automated SMS alerts, and instant emergency push notifications with sound & vibration on fall detection)
 
 ## Current behavior
 
@@ -64,10 +63,10 @@ The host tests cover feedback logic, not physical sensor accuracy or electrical 
 
 ## Implemented and planned
 
-**Implemented in active firmware & app:** ranging, smooth proportional haptic feedback, buzzer proximity tone, silent fall detection on the cane with instant BLE dispatch (`FALL_STATE:1`), serial diagnostics, native Android application (`com.example.intellicane`) with Blind User Dashboard, collapsible floating terminal, Caretaker Mode, live ESRI/OSMDroid map with user-centering FAB, and real-time Firestore sync with automated emergency push notifications (sound & vibration) on the caretaker's phone.
+**Implemented in active firmware & app:** ranging, smooth proportional haptic feedback, buzzer proximity tone, silent fall detection on the cane with instant BLE dispatch (`FALL_STATE:1`), serial diagnostics, native Android application (`application/`) with Blind User Dashboard, collapsible floating terminal, Caretaker Mode, live ESRI/OSMDroid map with user-centering FAB, real-time Firestore sync, automated emergency SMS alerts, and high-priority emergency push notifications (sound & vibration) on the caretaker's phone.
 
 **Planned:** battery monitoring and runtime validation, final mechanical packaging with TPU shock damping, downward drop/curb sensing, and optional secondary Time-of-Flight ranging.
 
 ## Cost
 
-Listed base electronics total **LKR 2,800**, excluding required divider costs not yet entered, battery, cane structure, enclosure and phone. All listed optional/future rows bring the component estimate to **LKR 14,400** before unpriced items and service costs. See [BOM](hardware/BOM.md).
+Listed base electronics total **LKR 2,800** (using direct Echo connection without voltage divider), excluding battery, cane structure, enclosure and phone. All listed optional/future rows bring the component estimate to **LKR 14,400** before unpriced items and service costs. See [BOM](hardware/BOM.md).

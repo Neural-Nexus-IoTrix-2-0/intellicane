@@ -70,7 +70,7 @@ As an undergraduate engineering team, we built \textbf{IntelliCane} to solve the
 We designed IntelliCane around two simple, tightly connected components:
 \begin{itemize}
     \item \textbf{Cane Safety Reflex (ESP32-C3):} Operates 100\% offline with a sub-50\,ms loop. An ultrasonic sensor scans ahead up to 4\,m, driving a handle vibration motor via 200\,Hz PWM that kicks in gently at 60\,cm and smoothly intensifies as obstacles get closer (down to 10\,cm). A motion sensor detects sudden drops and falls ($>65^\circ$ tilt or $>2.5\,g$ impact). When a fall occurs, the cane silences its local motor and buzzer so the user isn't startled or panicked, while immediately sending an emergency alert packet over Bluetooth Low Energy (BLE).
-    \item \textbf{Companion Android App (\texttt{com.example.intellicane}):} Connects wirelessly over BLE with two tailored modes:
+    \item \textbf{Companion Android App (\texttt{application/}):} Connects wirelessly over BLE with two tailored modes:
     \begin{itemize}
         \item \textit{Blind User Dashboard:} Clean, accessible status badges, one-tap location sharing, and a collapsible floating terminal window to peek at raw sensor telemetry during testing.
         \item \textit{Caretaker Mode:} Real-time presence indicators, a live tracking map (OSMDroid/ESRI) with a 1-tap user-centering button, and \textbf{instant emergency push notifications (with sound and vibration)} sent straight to the caretaker's phone the second a fall is detected!
@@ -118,12 +118,12 @@ Our firmware (\texttt{firmware/core-sensing/core-sensing.ino}) runs without bloc
 
 % Section 6
 \section{6. Companion Mobile Application (\texttt{application/})}
-We built the companion app natively in Kotlin (\texttt{com.example.intellicane}) to bridge IoT sensor data to caretakers:
+We built the companion app natively in Kotlin (\texttt{application/}) to bridge IoT sensor data to caretakers:
 \begin{itemize}
     \item \textbf{BLE Central Client:} Automatically connects to \texttt{Intelligent-Cane} over Nordic UART Service and decodes live telemetry packets: {\small\texttt{DIST:...|TILT:...|FALL:...|MOTOR:...|BUZZ:...|BLE:...}}.
     \item \textbf{Blind User Dashboard \& Floating Terminal:} Gives blind users high-contrast status cards and location sharing. A collapsible floating terminal button lets us inspect live telemetry during field tests without cluttering the screen.
     \item \textbf{Caretaker Map \& Emergency Centering:} Uses OSMDroid with ESRI map tiles. Caretakers have a dedicated FAB button (\texttt{fabUserLocation}) to jump straight to the user's live coordinates at 18.5x zoom.
-    \item \textbf{Automated Fall Notifications:} Uses Firebase Firestore to sync emergency status. When a fall occurs, the caretaker's phone triggers a high-priority system notification (\texttt{showFallAlertNotification}) that vibrates and sounds an emergency alarm.
+    \item \textbf{Automated Fall Notifications \& SMS Alerts:} Uses Firebase Firestore to sync emergency status and cloud functions for automated emergency SMS alerts. When a fall occurs, the caretaker's phone triggers a high-priority system notification (\texttt{showFallAlertNotification}) with sound and vibration, and emergency SMS alerts are dispatched immediately.
 \end{itemize}
 
 % Section 7
@@ -150,7 +150,7 @@ GY-521 MPU6050 & 6-Axis Accelerometer / Gyroscope for tilt \& fall & 600 & Deplo
 3-Pin Vibration Motor & Integrated driver module (200 Hz LEDC PWM) & 250 & Deployed \& Verified \\
 Piezo Buzzer \& Interconnects & Hazard alert tone \& bench wiring jumpers & 100 & Deployed \& Verified \\
 \midrule
-\textbf{Total Electronics Cost} & \textbf{Working Bench Prototype} & \textbf{LKR 2,800} & \textbf{Budget Ceiling: LKR 35,000} \\
+\textbf{Total Electronics Cost} & \textbf{Working Bench Prototype} & \textbf{LKR 2,800} & \textbf{Phase 1 Complete} \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -167,8 +167,8 @@ Piezo Buzzer \& Interconnects & Hazard alert tone \& bench wiring jumpers & 100 
 \section{10. Roadmap Prior to the Final (17 October 2026)}
 \begin{enumerate}
     \item \textbf{Hardware Enclosure \& Custom PCB:} Fabricate a custom PCB and 3D-print an ergonomic cane handle housing with TPU shock damping.
-    \item \textbf{Automated Cloud Alerts:} Expand Firebase functions to dispatch automated SMS notifications to emergency contacts upon verified fall events.
     \item \textbf{Battery Optimization:} Integrate an 18650 Li-ion cell with TP4056 charging circuit and configure ESP32-C3 Light Sleep for $>24$\,hour runtime.
+    \item \textbf{Secondary ToF Laser Sensor:} Add a compact Time-of-Flight laser ranging sensor to supplement ultrasonic detection in crowded spaces.
 \end{enumerate}
 
 \vspace{0.4em}

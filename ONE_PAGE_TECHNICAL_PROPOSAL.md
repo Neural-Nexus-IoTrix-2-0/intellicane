@@ -34,13 +34,13 @@ Diagnostic Terminal         -> Automatic cloud sync           -> Instant emergen
 - **Working Hardware Prototype:** Assembled and tested with the ESP32-C3 controller, ultrasonic sensor (Echo wired directly to GPIO 1), motion sensor, handle vibration motor, and buzzer for just LKR 2,800.
 - **Intuitive Handle Vibration:** The handle vibrates smoothly between 60 cm and 10 cm. It stays off past 60 cm so the user's hand does not get tired.
 - **Silent Fall Protection:** If the cane tilts past $65^\circ$ or takes a hard drop, it keeps quiet on the cane and immediately alerts the phone over Bluetooth. Standing the cane back up ($<30^\circ$) automatically clears the emergency and resumes normal guidance.
-- **Caretaker App with Push Notifications:** Built natively in Kotlin with a live tracking map and automated emergency notifications. The instant a fall packet arrives, the caretaker's phone rings and vibrates with a high-priority alert.
+- **Caretaker Alerts & Automated SMS:** Built in Kotlin (`application/`) with a live tracking map, vibrating emergency push alerts, and automated SMS emergency alerts to emergency contacts the moment a fall is detected.
 - **Bench Testing:** Verified ultrasonic distance accuracy with a physical tape measure from 2 cm to 2.5 m ($\pm 1.5\text{ cm}$ accuracy). Tested fall detection with a digital protractor and ran software unit tests to ensure calculations never crash or freeze.
 
 ## 5. Components & Cost (Total: LKR 2,800)
-- **Cane Electronics:** ESP32-C3 SuperMini (LKR 1,400), Ultrasonic Sensor (LKR 450), Motion Sensor (LKR 600), Vibration Motor (LKR 250), Buzzer & Jumpers (LKR 100). **Total: LKR 2,800** (comfortably within our competition budget ceiling of LKR 35,000).
-- **Software Tools:** C++ firmware (Arduino-ESP32), Android app in Kotlin, Firebase cloud database, OpenStreetMap / ESRI live maps.
+- **Cane Electronics:** ESP32-C3 SuperMini (LKR 1,400), Ultrasonic Sensor (LKR 450), Motion Sensor (LKR 600), Vibration Motor (LKR 250), Buzzer & Jumpers (LKR 100). **Total Cost: LKR 2,800**.
+- **Software Tools:** C++ firmware (Arduino-ESP32), Android app in Kotlin (`application/`), Firebase cloud database, OpenStreetMap / ESRI live maps.
 
 ## 6. Known Limitations & Roadmap to the Final (17 October 2026)
 - **Current Limitations & Solutions:** Soft angled clothing can sometimes scatter ultrasound beyond 2 m (we will add a compact laser sensor for the final). Breadboard jumper wires can loosen during heavy movement (we are making a custom soldered PCB and 3D-printed handle).
-- **Next Steps for the Final:** (1) Build the custom soldered PCB and ergonomic handle, (2) Add automated SMS emergency alerts via cloud functions, and (3) Add a rechargeable 18650 battery with charge protection for all-day battery life.
+- **Next Steps for the Final:** (1) Build the custom soldered PCB and ergonomic handle with TPU shock damping, (2) Add a rechargeable 18650 battery with charge protection for all-day runtime, and (3) Add a secondary Time-of-Flight laser sensor.

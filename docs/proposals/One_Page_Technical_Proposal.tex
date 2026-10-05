@@ -51,10 +51,10 @@ A traditional white cane is great for finding steps and curbs on the ground, but
 IntelliCane is built in two simple, connected parts:
 \begin{itemize}
     \item \textbf{Smart Cane Hardware (ESP32-C3):} The cane works completely on its own without needing a phone or internet. An ultrasonic sensor scans ahead up to 4\,m. A small motor in the handle vibrates gently when an obstacle is 60\,cm away, and vibrates progressively stronger as you get closer (down to 10\,cm). A motion sensor detects sudden falls or drops. During a fall, the cane stays quiet locally (no loud buzzing or alarm to panic the user) and instantly transmits an emergency alert over Bluetooth.
-    \item \textbf{Companion Mobile App (\texttt{com.example.intellicane}):} Connects to the cane over Bluetooth Low Energy with two modes:
+    \item \textbf{Companion Mobile App (\texttt{application/}):} Connects to the cane over Bluetooth Low Energy with two modes:
     \begin{itemize}
         \item \textit{Blind User Mode:} Clean high-contrast screen showing connection status, a 1-tap location sharing button, and a collapsible diagnostic terminal for testing.
-        \item \textit{Caretaker Mode:} Shows the user's live status, displays their real-time location on an interactive map with a quick re-center button, and \textbf{sends an instant emergency push notification (with sound and vibration)} to the caretaker's phone the moment a fall occurs!
+        \item \textit{Caretaker Mode:} Shows the user's live status, displays their real-time location on an interactive map with a quick re-center button, and \textbf{sends instant emergency push notifications (with sound and vibration)} to the caretaker's phone the moment a fall occurs!
     \end{itemize}
 \end{itemize}
 
@@ -83,20 +83,20 @@ Diagnostic Terminal & & Automatic cloud sync & & \textbf{Instant fall alert noti
     \item \textbf{Working Hardware Prototype:} Assembled and tested with the ESP32-C3 controller, ultrasonic sensor (Echo wired directly to GPIO 1), motion sensor, handle vibration motor, and buzzer for just LKR 2,800.
     \item \textbf{Intuitive Handle Vibration:} The handle vibrates smoothly between 60\,cm and 10\,cm. It stays off past 60\,cm so the user's hand does not get tired.
     \item \textbf{Silent Fall Protection:} If the cane tilts past $65^\circ$ or takes a hard drop, it keeps quiet on the cane and immediately alerts the phone over Bluetooth. Standing the cane back up ($<30^\circ$) automatically clears the emergency and resumes normal guidance.
-    \item \textbf{Caretaker App with Push Notifications:} Built natively in Kotlin with a live tracking map and automated emergency notifications. The instant a fall packet arrives, the caretaker's phone rings and vibrates with a high-priority alert.
+    \item \textbf{Caretaker Alerts \& Automated SMS:} Built in Kotlin (\texttt{application/}) with a live tracking map, vibrating emergency push alerts, and automated SMS emergency alerts to emergency contacts the moment a fall is detected.
     \item \textbf{Bench Testing:} Verified ultrasonic distance accuracy with a physical tape measure from 2\,cm to 2.5\,m ($\pm 1.5$\,cm accuracy). Tested fall detection with a digital protractor and ran software unit tests to ensure calculations never crash or freeze.
 \end{itemize}
 
 \section{5. Components \& Cost (Total: LKR 2,800)}
 \begin{itemize}
-    \item \textbf{Cane Electronics:} ESP32-C3 SuperMini (LKR 1,400), Ultrasonic Sensor (LKR 450), Motion Sensor (LKR 600), Vibration Motor (LKR 250), Buzzer \& Jumpers (LKR 100). \textbf{Total: LKR 2,800} (comfortably within our competition budget ceiling of LKR 35,000).
-    \item \textbf{Software Tools:} C++ firmware (Arduino-ESP32), Android app in Kotlin, Firebase cloud database, OpenStreetMap / ESRI live maps.
+    \item \textbf{Cane Electronics:} ESP32-C3 SuperMini (LKR 1,400), Ultrasonic Sensor (LKR 450), Motion Sensor (LKR 600), Vibration Motor (LKR 250), Buzzer \& Jumpers (LKR 100). \textbf{Total Cost: LKR 2,800}.
+    \item \textbf{Software Tools:} C++ firmware (Arduino-ESP32), Android app in Kotlin (\texttt{application/}), Firebase cloud database, OpenStreetMap / ESRI live maps.
 \end{itemize}
 
 \section{6. Known Limitations \& Roadmap to the Final (17 October 2026)}
 \begin{itemize}
     \item \textbf{Current Limitations \& Solutions:} Soft angled clothing can sometimes scatter ultrasound beyond 2\,m (we will add a compact laser sensor for the final). Breadboard jumper wires can loosen during heavy movement (we are making a custom soldered PCB and 3D-printed handle).
-    \item \textbf{Next Steps for the Final:} (1) Build the custom soldered PCB and ergonomic handle, (2) Add automated SMS emergency alerts via cloud functions, and (3) Add a rechargeable 18650 battery with charge protection for all-day battery life.
+    \item \textbf{Next Steps for the Final:} (1) Build the custom soldered PCB and ergonomic handle with TPU shock damping, (2) Add a rechargeable 18650 battery with charge protection for all-day runtime, and (3) Add a secondary Time-of-Flight laser sensor.
 \end{itemize}
 
 \end{document}

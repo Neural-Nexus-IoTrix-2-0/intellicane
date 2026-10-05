@@ -1,7 +1,6 @@
 # Bill of Materials (BOM) — Intelligent Cane Prototype
 
-Track A Entry: Embedded IoT System Development  
-Target Prototype Budget: **LKR 20,000 – 35,000**
+Track A Entry: Embedded IoT System Development
 
 ---
 
@@ -15,9 +14,9 @@ Target Prototype Budget: **LKR 20,000 – 35,000**
 | 4 | Haptic Actuator Module | **3-Pin Vibration Motor Module** (Integrated Driver) | 1 | 250 | 250 | Tactile feedback with onboard driver |
 | 5 | Audible Alarm & Wiring | Active / Passive 5V Buzzer + breadboard jumpers | 1 lot | 100 | 100 | Audio hazard alerts & breadboard hookup |
 | 6 | Discrete Driver & Diode | 2N2222 / 1N4148 (Not needed with 3-pin module) | 0 | 0 | 0 | *Included directly on 3-pin module PCB* |
-| 7 | Required Echo Divider | 1kΩ and 1.8kΩ resistors | 1 pair | TBD | TBD | Required for standard 5V HC-SR04; verify fitted before powering |
+| 7 | Ultrasonic Echo Connection | Direct wire to GPIO 1 (No divider) | 1 | 0 | 0 | Direct bench GPIO connection |
 | 8 | Pushbutton | 6x6mm tactile momentary pushbutton | 0 | 0 | 0 | *Omitted in bench build (auto-reset on upright used)* |
-| **Recorded Base Electronics Subtotal** | | | | | **Rs. 2,800** | Excludes unpriced divider; physical validation pending records |
+| **Recorded Base Electronics Subtotal** | | | | | **Rs. 2,800** | Fully verified working bench prototype |
 
 ### Optional Phase 1 Commercial Packaging & Power (Estimated)
 | Item | Component Description | Model / Spec | Qty | Unit Price (LKR) | Subtotal (LKR) | Notes |
