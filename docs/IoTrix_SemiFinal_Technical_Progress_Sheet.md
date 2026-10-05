@@ -4,7 +4,7 @@
 
 **Team:** Dulnith, Thenul, Chamith, Suneth
 
-**Repository:** https://github.com/Neural-Nexus-IoTrix-2-0/intelligent-cane
+**Repository:** https://github.com/Neural-Nexus-IoTrix-2-0/intellicane
 
 ## Problem
 White-cane users may benefit from supplementary feedback about obstacles in a sensor's field of view. The prototype explores affordable tactile and audible proximity feedback without requiring an internet service for the local response.

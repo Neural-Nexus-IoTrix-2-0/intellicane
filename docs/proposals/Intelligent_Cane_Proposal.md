@@ -48,7 +48,7 @@ The event website lists the final on 17 October 2026. The proposed priorities ar
 
 Current firmware, architecture and wiring reference, one-page technical progress sheet, software validation record, physical evidence as collected, and a live 4-minute demonstration followed by a 2-minute progress check and 4-minute Q&A.
 
-Repository: https://github.com/Neural-Nexus-IoTrix-2-0/intelligent-cane
+Repository: https://github.com/Neural-Nexus-IoTrix-2-0/intellicane
 
 Submission: https://forms.gle/cEg6tZt5X29xi27S9
 
