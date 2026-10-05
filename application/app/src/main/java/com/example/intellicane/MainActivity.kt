@@ -116,9 +116,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cardMap: CardView
     private lateinit var mapView: MapView
     private lateinit var fabMyLocation: FloatingActionButton
+    private lateinit var fabUserLocation: FloatingActionButton
     private var userMarker: Marker? = null
     private var caretakerMarker: Marker? = null
     private var lastLocation: Location? = null
+    private var lastUserGeoPoint: GeoPoint? = null
 
     // Bluetooth
     private var bluetoothGatt: BluetoothGatt? = null
@@ -460,6 +462,7 @@ class MainActivity : AppCompatActivity() {
         cardMap = findViewById(R.id.cardMap)
         mapView = findViewById(R.id.mapView)
         fabMyLocation = findViewById(R.id.fabMyLocation)
+        fabUserLocation = findViewById(R.id.fabUserLocation)
 
         mapView.setTileSource(esriTileSource)
         mapView.setMultiTouchControls(true)
@@ -470,6 +473,17 @@ class MainActivity : AppCompatActivity() {
 
         tvCloseTerminal.setOnClickListener {
             cardTerminal.visibility = View.GONE
+        }
+
+        fabUserLocation.setOnClickListener {
+            val userGeo = lastUserGeoPoint ?: userMarker?.position
+            if (userGeo != null) {
+                mapView.controller.setZoom(18.5)
+                mapView.controller.animateTo(userGeo)
+                Toast.makeText(this, "Centering on User's location", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "User's location is not available yet.", Toast.LENGTH_SHORT).show()
+            }
         }
 
         fabMyLocation.setOnClickListener {
@@ -1044,6 +1058,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUserMapLocation(lat: Double, lon: Double, titleText: String, pinColor: Int = Color.parseColor("#E53935")) {
         val geoPoint = GeoPoint(lat, lon)
+        lastUserGeoPoint = geoPoint
         mapView.controller.setZoom(18.0)
         mapView.controller.animateTo(geoPoint)
 
