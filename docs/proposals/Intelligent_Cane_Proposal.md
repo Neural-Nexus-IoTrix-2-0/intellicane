@@ -10,13 +10,13 @@ The project explores supplementary obstacle awareness for visually impaired whit
 
 ## Proposed solution and current scope
 
-An ESP32-C3 SuperMini reads one HC-SR04 ultrasonic sensor and a GY-521/MPU6050 inertial module. A motor module provides proportional vibration and a buzzer provides audible feedback. The team has connected these components for a bench demonstration. The firmware activates obstacle feedback below 60 cm, reaching full commanded motor duty at 10 cm. It separately triggers a cane orientation/impact alarm at tilt >=65 degrees or acceleration magnitude >=2.5 g. It clears below 30 degrees when the trigger is absent.
+An ESP32-C3 SuperMini reads one HC-SR04 ultrasonic sensor and a GY-521/MPU6050 inertial module. A motor module provides proportional vibration and a buzzer provides audible feedback. The team has connected these components for a bench demonstration. The firmware activates obstacle feedback below 60 cm, reaching full commanded motor duty at 10 cm. When an orientation or impact event is detected (tilt >=65 degrees or acceleration magnitude >=2.5 g), the cane enters a silent emergency state—disabling the local motor and buzzer to prevent user distress—and immediately dispatches high-priority alert packets and `FALL_STATE:1` over BLE to the companion mobile app. It clears automatically and transmits `FALL_STATE:0` when the cane is restored upright (<30 degrees).
 
-This is a simple cane-state alarm. A cane drop or ordinary handling may trigger it, and a person's fall may not. Human-fall classification requires further development and validation.
+This provides an immediate safety reflex on the cane while offloading remote notification and geolocation tracking to the companion smartphone.
 
 ## Architecture and IoT extension
 
-Sensor signals enter the C3 through Echo timing and I2C. The controller calculates motor duty and beep timing locally, then emits USB serial and BLE Nordic UART Service telemetry. BLE connects to a phone terminal when a compatible client subscribes. A future companion app would attach phone location, accuracy and timestamp to an event, then use the phone's network to notify a caregiver and record delivery acknowledgment. That app and remote service are not implemented.
+Sensor signals enter the C3 through direct Echo timing and I2C. The controller calculates motor duty and beep timing locally, then emits USB serial and BLE Nordic UART Service telemetry. A native Android companion app (`com.example.intellicane`) connects via BLE 5.0, providing a high-contrast Blind User Dashboard with one-tap location sharing, a collapsible floating terminal for live sensor inspection, Caretaker Mode with an interactive ESRI/OSMDroid map featuring an instant user-centering FAB (18.5x zoom), and Firebase Cloud Firestore synchronization (`updateFallStateInFirestore`) that alerts remote caregivers upon fall detection.
 
 Downward sensing and on-demand camera/AI narration are possible later extensions. They are outside the active bench prototype. The core feedback remains independent of those services, although BLE and local sensing currently share MCU execution time.
 
@@ -46,7 +46,7 @@ The event website lists the final on 17 October 2026. The proposed priorities ar
 
 ## Deliverables
 
-Current firmware, architecture and wiring reference, one-page technical progress sheet, software validation record, physical evidence as collected, and a live 4-minute demonstration followed by a 2-minute progress check and 4-minute Q&A.
+Current firmware, architecture and wiring reference, root one-page technical proposal (`ONE_PAGE_TECHNICAL_PROPOSAL.md` and `ONE_PAGE_TECHNICAL_PROPOSAL.pdf`), full project proposal (`docs/Neural-Nexus.pdf`), native Android companion application (`application/`), software validation record, physical evidence as collected, and a live 4-minute demonstration followed by a 2-minute progress check and 4-minute Q&A.
 
 Repository: https://github.com/Neural-Nexus-IoTrix-2-0/intellicane
 

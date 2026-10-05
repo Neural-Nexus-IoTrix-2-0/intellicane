@@ -13,35 +13,36 @@ Visually impaired individuals face recurring risks from obstacles in their trave
 
 ## 2. Proposed Solution
 **IntelliCane** is an affordable, multimodal mobility system combining a deterministic offline safety reflex on the cane with an accessible Android companion application:
-- **Core Embedded Reflex (ESP32-C3):** Operates 100% offline with sub-50 ms determinism. An HC-SR04 ultrasonic transceiver detects forward obstacles up to 4 meters, driving a 3-pin vibration motor module via 200 Hz LEDC PWM that scales smoothly between 60 cm and 10 cm. An MPU6050 6-axis IMU detects orientation/impact ($>65^\circ$ tilt) to trigger an emergency buzzer, automatically clearing when restored upright ($<30^\circ$).
-- **Companion Android App (`application/`):** Connects via BLE 5.0 (Nordic UART Service) and provides two interfaces: **Blind User Mode** (accessible device status and assistance controls) and **Caretaker Mode** (real-time telemetry monitor, emergency push notifications via Firebase, and live OpenStreetMap tracking leveraging the smartphone's native A-GPS—avoiding the cost, power draw, and satellite blind spots of a standalone hardware GPS module).
+- **Core Embedded Reflex (ESP32-C3):** Operates 100% offline with sub-50 ms determinism. An HC-SR04 ultrasonic transceiver detects forward obstacles up to 4 meters, driving a 3-pin vibration motor module via 200 Hz LEDC PWM that scales smoothly between 60 cm and 10 cm. An MPU6050 6-axis IMU continuously monitors dynamic tilt and impact forces. Upon detecting a fall ($>65^\circ$ tilt or $>2.5\,g$ impact), the cane automatically enters a silent emergency state (disabling the local buzzer and motor to avoid user distress) and immediately dispatches high-priority alert packets over BLE.
+- **Companion Android App (`application/`):** Connects via BLE 5.0 (Nordic UART Service) and provides two tailored interfaces:
+  - **Blind User Mode:** Accessible dashboard showing BLE connection state, one-tap location sharing, and a collapsible floating terminal for technical telemetry diagnostics.
+  - **Caretaker Mode:** Interactive ESRI/OpenStreetMap interface featuring instant user-location centering FAB (18.5x zoom), real-time user presence tracking, and emergency fall alerts synchronized directly via Firebase Firestore.
 
 ## 3. System Architecture
 ```
 [SENSING LAYER]              [CORE REFLEX (CANE)]              [TACTILE & AUDIO FEEDBACK]
 HC-SR04 (Trig: 0, Echo: 1) -> ESP32-C3 SuperMini (160 MHz) -> 200 Hz LEDC PWM Motor (GPIO 6)
-MPU6050 (I2C: SDA 4, SCL 5)-> Non-blocking Cooperative Loop -> Piezo Buzzer Alert (GPIO 7)
-                                       |
+MPU6050 (I2C: SDA 4, SCL 5)-> Non-blocking Cooperative Loop -> Proximity Audio Warning (GPIO 7)
+                                       |                       (Silent on Cane during Fall)
                                        v  BLE 5.0 Nordic UART Service (RX: 6E400002 / TX: 6E400003)
 [MOBILE APPLICATION]         [LOCATION & CLOUD]                [CARETAKER VIEW]
-Android Kotlin App        -> Smartphone A-GPS Geolocation   -> Real-Time OSMDroid Map
-(User / Caretaker Mode)   -> Firebase Firestore & Messaging -> Instant Remote Fall Alert Push
+Android Kotlin App        -> Smartphone A-GPS Geolocation   -> Real-Time OSMDroid/ESRI Map
+(User / Caretaker Mode)   -> Firebase Firestore & Presence  -> Emergency Fall State Sync & Push
 ```
 
 ## 4. Current Progress
-- **Bench Prototype Verified:** Physical hardware assembled with ESP32-C3 SuperMini, HC-SR04 (direct Echo to GPIO 1), GY-521 MPU6050, 3-pin vibration motor, and buzzer.
+- **Bench Prototype Verified:** Physical hardware assembled with ESP32-C3 SuperMini, direct-wired HC-SR04 Echo (GPIO 1), GY-521 MPU6050, 3-pin vibration motor, and buzzer.
 - **Proportional Haptic Driver:** Verified 200 Hz LEDC PWM ramping monotonically from 60 cm down to 10 cm, remaining silent $>60\text{ cm}$ to prevent sensory fatigue.
-- **Fall Detection & Self-Clearing:** Pitch/roll tracking activates buzzer alarm on tilt $>65^\circ$ (1.5 s debounce) and automatically silences within 200 ms of upright recovery ($<30^\circ$).
+- **Silent Fall Detection & BLE Dispatch:** Tilt $>65^\circ$ or impact $>2.5\,g$ silences local cane actuators and instantly transmits `FALL_STATE:1` and `[ALERT: FALL DETECTED!]` over BLE. Upright recovery ($<30^\circ$) transmits `FALL_STATE:0` and restores normal navigation.
 - **Multi-IC Resilient I2C Driver:** Custom direct-register MPU6050/6500 driver supporting clone ICs, dual I2C addresses (`0x68`/`0x69`), and automatic bus lockup recovery.
-- **Wireless BLE Telemetry:** Streams live sensor telemetry and connected peer MAC address at 10 Hz over Nordic UART Service (`6E400001-...`).
-- **Android Application Implemented:** Complete native Kotlin project (`com.example.intellicane`) with Firebase authentication, OSMDroid live mapping, and BLE client.
+- **Android Application Implemented & Refined:** Complete native Kotlin project (`com.example.intellicane`) featuring User Dashboard, floating collapsible terminal window, Firebase Firestore fall synchronization (`updateFallStateInFirestore`), and live map with dedicated user-centering FAB (`fabUserLocation`).
 
 ## 5. Technology Stack & Component Costs
 - **Microcontroller:** ESP32-C3 SuperMini (32-bit RISC-V @ 160 MHz, 400 KB SRAM, 4 MB Flash, BLE 5.0) — **LKR 1,400**
 - **Sensing:** HC-SR04 Ultrasonic Transceiver (direct Echo to GPIO 1) — **LKR 450**; GY-521 MPU6050 6-Axis IMU — **LKR 600**
 - **Actuation & Audio:** 3-Pin Vibration Motor Breakout (LEDC 200 Hz PWM) — **LKR 250**; 3.3V/5V Piezo Buzzer & Jumpers — **LKR 100**
 - **Total Safety-Critical Bench Prototype Cost:** **LKR 2,800** (Tracked within the LKR 20,000–35,000 project budget ceiling).
-- **Firmware & Mobile Software:** Embedded C++ (C++17), Arduino-ESP32 Core, Android Kotlin, Jetpack Compose, Firebase, OSMDroid.
+- **Firmware & Mobile Software:** Embedded C++ (C++17), Arduino-ESP32 Core, Android Kotlin, Jetpack Material 3, Firebase (Auth, Firestore, Realtime Database), OSMDroid / ESRI Tiles.
 
 ## 6. Testing & Validation Results
 - **Host Unit Testing (`tests/proximity_feedback_test.cpp`):** 100% pass across boundary values, invalid distances (negative, zero, NaN, $\infty$), monotonic PWM ramp progression, motor active-high/low polarity inversion, beep transitions, and 32-bit `millis()` rollover resilience.

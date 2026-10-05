@@ -1,6 +1,6 @@
 \documentclass[10pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
-\usepackage[margin=0.7in,top=0.75in,bottom=0.75in]{geometry}
+\usepackage[margin=0.6in,top=0.6in,bottom=0.6in]{geometry}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{xcolor}
@@ -28,9 +28,9 @@
 
 % Section formatting
 \titleformat{\section}{\large\bfseries\color{primary}}{}{0em}{}[\titlerule]
-\titlespacing*{\section}{0pt}{10pt}{4pt}
+\titlespacing*{\section}{0pt}{7pt}{3pt}
 \titleformat{\subsection}{\normalsize\bfseries\color{secondary}}{}{0em}{}
-\titlespacing*{\subsection}{0pt}{6pt}{2pt}
+\titlespacing*{\subsection}{0pt}{4pt}{2pt}
 
 % Headers and Footers
 \pagestyle{fancy}
@@ -69,11 +69,11 @@ Visually impaired individuals encounter hazardous obstacles during daily mobilit
 \section{2. Proposed Solution \& System Overview}
 The IntelliCane ecosystem integrates an intelligent embedded controller on the cane with a dual-mode companion smartphone application:
 \begin{itemize}
-    \item \textbf{Safety-Critical Cane Reflex (ESP32-C3):} Executes a sub-50\,ms deterministic loop. An HC-SR04 ultrasonic transceiver detects forward hazards up to 4 meters, driving a 3-pin vibration motor via 200\,Hz hardware LEDC PWM that scales smoothly between 60\,cm and 10\,cm. A 6-axis MPU6050 IMU detects cane impact and orientation ($>65^\circ$ tilt) to trigger an emergency buzzer, with auto-recovery ($<30^\circ$).
+    \item \textbf{Safety-Critical Cane Reflex (ESP32-C3):} Executes a sub-50\,ms deterministic loop. An HC-SR04 ultrasonic transceiver detects forward hazards up to 4 meters, driving a 3-pin vibration motor via 200\,Hz hardware LEDC PWM that scales smoothly between 60\,cm and 10\,cm. A 6-axis MPU6050 IMU detects orientation and impact forces ($>65^\circ$ tilt or $>2.5\,g$). Upon detecting a fall, the cane automatically enters a silent emergency state (disabling local buzzer and motor to avoid user distress) while immediately routing high-priority alert packets over BLE.
     \item \textbf{Companion Android Application (\texttt{com.example.intellicane}):} Connects wirelessly over Bluetooth Low Energy (BLE 5.0 Nordic UART Service). Operates in two dedicated modes:
     \begin{itemize}
-        \item \textit{Blind User Mode:} Accessible interface broadcasting cane battery, connection status, and emergency assistance controls.
-        \item \textit{Caretaker Mode:} Real-time terminal telemetry monitor, emergency fall alerts via Firebase Cloud Messaging, and an interactive OpenStreetMap (OSMDroid) tracking map using the smartphone's native A-GPS---eliminating the cost and power draw of a standalone hardware GPS module.
+        \item \textit{Blind User Dashboard:} Accessible interface with connection indicators, one-tap A-GPS location sharing, and a collapsible floating terminal window for on-demand telemetry diagnostics without visual clutter.
+        \item \textit{Caretaker Mode:} Real-time presence tracking, automated emergency fall alerts synchronized directly via Firebase Firestore, and an interactive ESRI/OpenStreetMap (OSMDroid) interface with an instant user-centering FAB (18.5x zoom)---eliminating the cost, weight, and power draw of a standalone hardware GPS module.
     \end{itemize}
 \end{itemize}
 
@@ -83,15 +83,15 @@ The IntelliCane ecosystem integrates an intelligent embedded controller on the c
 \small
 \begin{tabular}{|c|c|c|c|c|}
 \hline
-\textbf{Sensing Layer} & $\longrightarrow$ & \textbf{Core Embedded Reflex (Cane)} & $\longrightarrow$ & \textbf{Tactile Feedback} \\
-HC-SR04 (GPIO 0/1) & & ESP32-C3 SuperMini (160 MHz RISC-V) & & 200 Hz LEDC PWM (GPIO 6) \\
-MPU6050 (I2C 4/5) & & Non-blocking cooperative scheduler & & Piezo Buzzer Tone (GPIO 7) \\
+\textbf{Sensing Layer} & $\longrightarrow$ & \textbf{Core Embedded Reflex (Cane)} & $\longrightarrow$ & \textbf{Tactile \& Audio Alerts} \\
+HC-SR04 (GPIO 0/1 direct) & & ESP32-C3 SuperMini (160 MHz RISC-V) & & 200 Hz LEDC PWM Motor (GPIO 6) \\
+MPU6050 (I2C 4/5) & & Non-blocking cooperative scheduler & & Proximity Tone (Silent on Fall) \\
 \hline
 \multicolumn{5}{c}{$\boldsymbol{\downarrow}$ \textit{Wireless BLE 5.0 (Nordic UART Service: RX 6E400002 / TX 6E400003)}} \\
 \hline
 \textbf{Mobile Application} & $\longrightarrow$ & \textbf{Location \& Cloud Services} & $\longrightarrow$ & \textbf{Caretaker View} \\
-Android Kotlin App & & Smartphone A-GPS Geolocation & & Real-time OSMDroid Map \\
-(User / Caretaker Mode) & & Firebase Firestore \& Cloud Messaging & & Remote Fall Alert Push \\
+Android Kotlin App & & Smartphone A-GPS Geolocation & & Real-time OSMDroid/ESRI Map \\
+(User Dashboard / Caretaker) & & Firebase Firestore \& Presence Sync & & FAB User Centering \& Fall Push \\
 \hline
 \end{tabular}
 \end{center}
@@ -103,7 +103,7 @@ The cane hardware is designed around the stamp-sized \textbf{ESP32-C3 SuperMini}
     \item \textbf{Ultrasonic Ranging (HC-SR04):} Triggered via 10\,$\mu$s pulses on GPIO 0. The Echo pulse is connected directly to GPIO 1, keeping the bench prototype wiring minimal, robust, and efficient.
     \item \textbf{Inertial Motion Sensor (GY-521 MPU6050):} Communicates over hardware I2C (SDA: GPIO 4, SCL: GPIO 5) at 100\,kHz. AD0 is grounded to set address \texttt{0x68}. A custom direct-register fallback driver ensures resilience against clone ICs and bus lockups.
     \item \textbf{Tactile Haptic Motor Module:} 3-pin vibration motor module with onboard MOSFET driver powered from 5\,V; gate modulated via GPIO 6 at 200\,Hz PWM, providing gradual spatial perception without hand numbness.
-    \item \textbf{Audible Hazard Alarm:} Active/passive 3.3\,V buzzer on GPIO 7 provides urgent pulsed alerts ($<30$\,cm and fall states).
+    \item \textbf{Audible Hazard Alarm:} Active/passive 3.3\,V buzzer on GPIO 7 provides urgent pulsed alerts for close obstacles ($<30$\,cm), while automatically silencing during fall events to prevent user panic.
 \end{itemize}
 
 % Section 5
@@ -113,16 +113,17 @@ The firmware (\texttt{firmware/core-sensing/core-sensing.ino}) operates with zer
     \item \textbf{Task Rates:} Ultrasonic ranging @ 20\,Hz (50\,ms), IMU tilt tracking @ 50\,Hz (20\,ms), Actuator PWM updates @ 100\,Hz (10\,ms), and BLE telemetry transmission @ 10\,Hz (100\,ms).
     \item \textbf{Proportional Ramping Equation:} The PWM duty cycle ramps monotonically as obstacle distance $d$ decreases:
     $$\text{PWM Duty} = \text{constrain}\left(255 - \frac{d - d_{\min}}{d_{\max} - d_{\min}} \times (255 - \text{PWM}_{\min}),\ \text{PWM}_{\min},\ 255\right) \quad (d_{\min}=10\,\text{cm},\ d_{\max}=60\,\text{cm})$$
-    \item \textbf{Fall Detection \& Self-Clearing Logic:} Sustained tilt $>65^\circ$ or impact acceleration $>2.5\,g$ initiates a 1.5\,s confirmation timer. When triggered, the emergency buzzer pulses continuously. Restoring the cane upright ($<30^\circ$) automatically clears the alarm.
+    \item \textbf{Silent Fall Detection \& BLE Dispatch:} Tilt $>65^\circ$ or impact acceleration $>2.5\,g$ triggers emergency fall mode. The cane silences local haptic and audible alerts, transitions the onboard LED, and immediately broadcasts \texttt{FALL\_STATE:1} and \texttt{[ALERT: FALL DETECTED!]} over BLE. Restoring the cane upright ($<30^\circ$) transmits \texttt{FALL\_STATE:0} and automatically restores normal navigation.
 \end{itemize}
 
 % Section 6
 \section{6. Companion Mobile Application (\texttt{application/})}
 The native Android application is structured in Kotlin (\texttt{com.example.intellicane}) to bridge IoT telemetry:
 \begin{itemize}
-    \item \textbf{BLE GATT Central Client:} Auto-discovers \texttt{Intelligent-Cane}, connects to the Nordic UART Service, and parses incoming telemetry packets: \texttt{DIST: XX.Xcm | TILT: XX.Xdeg | FALL: X | MOTOR: XXX | BUZZ: X | BLE: CONN}.
-    \item \textbf{Caretaker Dashboard \& Map Integration:} Integrates \texttt{org.osmdroid} with live OpenStreetMap tile rendering. Displays the user's real-time coordinate marker, GPS accuracy circle, battery status, and last-seen timestamp.
-    \item \textbf{Firebase Cloud Backend:} Synchronizes state with Firebase Firestore and issues push alerts to registered caretakers via \texttt{MyFirebaseMessagingService.kt} upon fall detection.
+    \item \textbf{BLE GATT Central Client:} Auto-discovers \texttt{Intelligent-Cane}, connects to Nordic UART Service, and parses telemetry: {\small\texttt{DIST:...|TILT:...|FALL:...|MOTOR:...|BUZZ:...|BLE:...}}.
+    \item \textbf{User Dashboard \& Floating Terminal:} Blind users view simple high-contrast status and location-sharing controls. A collapsible floating terminal toggle (\texttt{btnToggleTerminal}) allows on-demand viewing of live sensor data without cluttering the screen.
+    \item \textbf{Caretaker Map \& Emergency Centering:} Integrates \texttt{org.osmdroid} with ESRI tile sources. Features a dedicated FAB (\texttt{fabUserLocation}) to immediately center and zoom (18.5x) on the blind user's real-time A-GPS coordinates.
+    \item \textbf{Firebase Cloud Backend:} Syncs state with Cloud Firestore and Realtime Database. Upon receiving \texttt{FALL\_STATE:1}, \texttt{updateFallStateInFirestore} immediately flags the emergency in the cloud to alert caretakers.
 \end{itemize}
 
 % Section 7

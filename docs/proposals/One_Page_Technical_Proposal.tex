@@ -50,8 +50,8 @@ Visually impaired individuals face persistent safety hazards from undetected low
 \section{2. Proposed Solution}
 \textbf{IntelliCane} is a low-cost (LKR 2,800 bench electronics), multimodal mobility aid combining an offline embedded safety reflex on the cane with an accessible companion Android application (\texttt{com.example.intellicane}):
 \begin{itemize}
-    \item \textbf{Offline Safety Reflex (ESP32-C3):} Sub-50\,ms deterministic loop. An HC-SR04 ultrasonic transceiver detects forward hazards up to 4\,m, driving a 3-pin vibration motor via 200\,Hz LEDC PWM that scales smoothly between 60\,cm and 10\,cm. An MPU6050 6-axis IMU detects cane tilt ($>65^\circ$) to trigger an emergency buzzer, with auto-recovery ($<30^\circ$).
-    \item \textbf{Android Mobile App (\texttt{application/}):} Connects over BLE 5.0 (Nordic UART Service) and features two modes: \textit{Blind User Mode} (accessible status and connection monitoring) and \textit{Caretaker Mode} (real-time telemetry terminal, Firebase push notifications, and live OpenStreetMap tracking utilizing the phone's native A-GPS---eliminating the cost, power, and indoor blind spots of a standalone hardware GPS).
+    \item \textbf{Offline Safety Reflex (ESP32-C3):} Sub-50\,ms deterministic loop. An HC-SR04 ultrasonic transceiver detects forward hazards up to 4\,m, driving a 3-pin vibration motor via 200\,Hz LEDC PWM that scales smoothly between 60\,cm and 10\,cm. An MPU6050 6-axis IMU detects orientation/impact ($>65^\circ$ tilt or $>2.5\,g$). Upon fall detection, the cane automatically enters a silent emergency state (disabling the local buzzer and motor to prevent user distress) and immediately broadcasts high-priority alert packets over BLE.
+    \item \textbf{Android Mobile App (\texttt{application/}):} Connects over BLE 5.0 (Nordic UART Service) and features two tailored modes: \textit{Blind User Mode} (accessible dashboard, one-tap location sharing, collapsible floating terminal for live diagnostics) and \textit{Caretaker Mode} (real-time presence status, Firebase Firestore fall synchronization, and an interactive ESRI/OSMDroid map with a dedicated user-location re-centering FAB).
 \end{itemize}
 
 \section{3. System Architecture \& Data Flow}
@@ -62,13 +62,13 @@ Visually impaired individuals face persistent safety hazards from undetected low
 \hline
 \textbf{Sensing (Cane)} & $\rightarrow$ & \textbf{Core Embedded Reflex (ESP32-C3)} & $\rightarrow$ & \textbf{Tactile \& Audio Alerts} \\
 HC-SR04 (Trig: 0, Echo: 1 direct) & & 160 MHz RISC-V, Non-blocking scheduler & & 200 Hz LEDC PWM Haptic Motor (GPIO 6) \\
-MPU6050 6-Axis IMU (I2C: 4/5) & & Monotonic ramping math \& fall debounce & & High-Urgency Piezo Buzzer (GPIO 7) \\
+MPU6050 6-Axis IMU (I2C: 4/5) & & Monotonic ramping math \& fall debounce & & Proximity Audio Warning (Silent on Fall) \\
 \hline
 \multicolumn{5}{|c|}{\textit{Wireless BLE 5.0 Nordic UART Service (RX: 6E400002 / TX: 6E400003)}} \\
 \hline
 \textbf{Mobile App (Kotlin)} & $\rightarrow$ & \textbf{Location \& Cloud Services} & $\rightarrow$ & \textbf{Caretaker View} \\
-Blind User \& Caretaker Modes & & Smartphone A-GPS Geolocation & & Real-time OSMDroid Map \& Status \\
-Firebase Auth \& Client & & Firebase Firestore \& Messaging & & Remote Emergency Fall Alert Push \\
+User Dashboard \& Caretaker Modes & & Smartphone A-GPS Geolocation & & Real-time OSMDroid/ESRI Map (FAB Centering) \\
+Floating Terminal \& BLE Client & & Firebase Firestore Sync \& Presence & & Remote Fall Alert Push \& Presence \\
 \hline
 \end{tabular}
 \end{center}
@@ -78,10 +78,10 @@ Firebase Auth \& Client & & Firebase Firestore \& Messaging & & Remote Emergency
 \begin{itemize}
     \item \textbf{Physical Hardware Bench Build:} Assembled and verified with ESP32-C3 SuperMini, direct-wired HC-SR04 Echo (GPIO 1), GY-521 MPU6050, 3-pin vibration motor, and buzzer.
     \item \textbf{Proportional Haptics:} 200\,Hz LEDC PWM verified ramping smoothly from 60\,cm down to 10\,cm, remaining silent $>60$\,cm to prevent sensory fatigue.
-    \item \textbf{Fall Detection \& Self-Clearing:} Tilt $>65^\circ$ triggers emergency buzzer alarm (1.5\,s debounce); restoring cane upright ($<30^\circ$) silences alarm within 200\,ms.
+    \item \textbf{Silent Fall Detection \& BLE Dispatch:} Tilt $>65^\circ$ or impact $>2.5\,g$ silences local actuators and dispatches \texttt{FALL\_STATE:1} over BLE; upright recovery ($<30^\circ$) transmits \texttt{FALL\_STATE:0} and restores navigation.
     \item \textbf{Resilient Multi-IC Driver:} Custom direct-register fallback driver supports clone MPU6050/6500 ICs, dual I2C addresses (\texttt{0x68}/\texttt{0x69}), and bus auto-reconnect.
     \item \textbf{Wireless BLE Telemetry:} 10\,Hz live packet broadcast over Nordic UART Service displaying connected smartphone peer MAC address.
-    \item \textbf{Mobile Application Built:} Native Android Kotlin project (\texttt{com.example.intellicane}) with Caretaker Mode, OSMDroid live map, and BLE terminal.
+    \item \textbf{Android Application Implemented \& Refined:} Native Kotlin app (\texttt{com.example.intellicane}) with User Dashboard, floating collapsible terminal window, Firebase Firestore fall sync (\texttt{updateFallStateInFirestore}), and live map with user-centering FAB (\texttt{fabUserLocation}).
 \end{itemize}
 
 \section{5. Technology Stack \& Budget Breakdown (Phase 1 Bench: LKR 2,800)}

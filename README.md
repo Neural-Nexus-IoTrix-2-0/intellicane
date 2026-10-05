@@ -11,13 +11,12 @@ An ESP32-C3 SuperMini bench prototype for supplementary obstacle awareness. An u
 The organizer announcement specifies **10 minutes total: 4 minutes demonstration, 2 minutes progress check, 4 minutes Q&A**. All four members must attend with cameras on.
 
 - [**One-Page Technical Proposal**](ONE_PAGE_TECHNICAL_PROPOSAL.md) *(PDF: [`ONE_PAGE_TECHNICAL_PROPOSAL.pdf`](ONE_PAGE_TECHNICAL_PROPOSAL.pdf))*
-- [**Project Proposal Submission PDF**](output/semifinal/Neural-Nexus.pdf) *(LaTeX source: `docs/proposals/IntelliCane_Project_Proposal.tex`)*
+- [**Project Proposal Submission PDF**](docs/Neural-Nexus.pdf) *(LaTeX source: `docs/proposals/IntelliCane_Project_Proposal.tex`)*
 - [10-minute demonstration and Q&A guide](docs/IoTrix_SemiFinal_Defense_and_Demo_Guide.md)
 - [System architecture](docs/architecture.md)
 - [Software validation evidence](docs/test-logs/2026-10-05-software-validation.md)
 - [Hardware wiring guide](hardware/wiring.md) & [Circuit schematic](hardware/circuit_diagram.png)
-- [Android Companion App](application/) (`com.example.intellicane` — Caretaker Mode & OSMDroid live mapping)
-- All deliverable files: `output/semifinal/`
+- [Android Companion App](application/) (`com.example.intellicane` — User Dashboard, Caretaker Mode, OSMDroid/ESRI map with FAB centering, Firestore fall synchronization)
 
 ## Current behavior
 
@@ -27,10 +26,10 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 | Valid distance <60 cm | Increasing motor PWM and beep urgency as distance decreases |
 | Distance <=10 cm, greater than zero | Full commanded motor duty |
 | Missing Echo / invalid distance | Obstacle feedback off; telemetry indicates NO ECHO for nonfinite readings |
-| Tilt >=65 degrees OR acceleration >=2.5 g | Cane orientation/impact alarm |
-| Tilt <30 degrees with trigger absent | Alarm clears |
+| Tilt >=65 degrees OR acceleration >=2.5 g | Silent fall state on cane (motor & buzzer silenced); dispatches `FALL_STATE:1` over BLE |
+| Tilt <30 degrees with trigger absent | Fall cleared; dispatches `FALL_STATE:0` over BLE and restores normal navigation |
 
-An IMU alarm sounds when the cane is dropped or horizontal. Motor duty is smoothly modulated via 200 Hz LEDC hardware PWM.
+Local motor and buzzer are silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Motor duty is smoothly modulated via 200 Hz LEDC hardware PWM.
 
 ## Hardware and interfaces
 
@@ -64,9 +63,9 @@ The host tests cover feedback logic, not physical sensor accuracy or electrical 
 
 ## Implemented and planned
 
-**Implemented in active firmware:** ranging, PWM feedback, configurable buzzer drive, acceleration-based orientation/impact alarm, serial diagnostics, BLE NUS notifications and reset command handling.
+**Implemented in active firmware & app:** ranging, PWM proportional haptic feedback, configurable buzzer proximity tone, silent fall detection with instant BLE notification dispatch (`FALL_STATE:1`), serial diagnostics, BLE NUS notifications, native Android application (`com.example.intellicane`) with Blind User Dashboard, collapsible floating terminal, Caretaker Mode, live ESRI/OSMDroid map with user-centering FAB, and Firebase Firestore fall synchronization.
 
-**Planned:** phone location and caregiver alert delivery, battery monitoring/runtime validation, final mechanical packaging, downward sensing and optional camera/AI narration. The camera, dashboard and voice-service directories currently contain plans. `firmware/archived-dual-tof/` and `simulation/wokwi/` are separate reference implementations and do not validate the current C3 build.
+**Planned:** battery monitoring and runtime validation, final mechanical packaging with TPU shock damping, downward drop/curb sensing, and optional secondary Time-of-Flight ranging.
 
 ## Cost
 
