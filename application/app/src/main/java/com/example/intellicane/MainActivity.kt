@@ -1,6 +1,9 @@
 package com.example.intellicane
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -8,6 +11,8 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
@@ -35,6 +40,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -111,6 +117,7 @@ class MainActivity : AppCompatActivity() {
     private var bluetoothGatt: BluetoothGatt? = null
     private var isConnected = false
     private val targetMacAddress = "48:F6:EE:17:C3:42"
+    private val bleBuffer = StringBuilder()
 
     private val cccDescriptorUuid: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     private val descriptorQueue: Queue<Pair<BluetoothGattCharacteristic, BluetoothGattDescriptor>> = ArrayDeque()
@@ -135,6 +142,8 @@ class MainActivity : AppCompatActivity() {
     private var pairedPresenceRef: DatabaseReference? = null
     private var pairedPresenceListener: ValueEventListener? = null
     private var pairedLocationRegistration: ListenerRegistration? = null
+    private var lastFallAlertNotified = false
+    private var isCaretakerFallAlertActive = false
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -259,7 +268,7 @@ class MainActivity : AppCompatActivity() {
         ) {
             val bytes = characteristic?.value ?: return
             val incomingText = String(bytes, Charsets.UTF_8)
-            logToTerminal(incomingText, isIncoming = true)
+            processIncomingBleChunk(incomingText)
         }
 
         override fun onCharacteristicChanged(
@@ -268,7 +277,26 @@ class MainActivity : AppCompatActivity() {
             value: ByteArray
         ) {
             val incomingText = String(value, Charsets.UTF_8)
-            logToTerminal(incomingText, isIncoming = true)
+            processIncomingBleChunk(incomingText)
+        }
+    }
+
+    private fun processIncomingBleChunk(chunk: String) {
+        bleBuffer.append(chunk)
+        while (bleBuffer.contains("\n") || bleBuffer.contains("\r")) {
+            val newlineIndex = bleBuffer.indexOfFirst { it == '\n' || it == '\r' }
+            val line = bleBuffer.substring(0, newlineIndex).trim()
+            bleBuffer.delete(0, newlineIndex + 1)
+            if (line.isNotEmpty()) {
+                logToTerminal(line, isIncoming = true)
+            }
+        }
+        if (bleBuffer.length > 200) {
+            val pending = bleBuffer.toString().trim()
+            bleBuffer.clear()
+            if (pending.isNotEmpty()) {
+                logToTerminal(pending, isIncoming = true)
+            }
         }
     }
 
@@ -319,18 +347,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun logToTerminal(message: String, isIncoming: Boolean = false) {
         runOnUiThread {
-            val formatted = if (isIncoming) message else "$message\n"
+            val formatted = if (isIncoming) "$message\n" else "$message\n"
             tvTerminalOutput.append(formatted)
             scrollTerminal.post {
                 scrollTerminal.fullScroll(View.FOCUS_DOWN)
             }
             if (isIncoming) {
-                if (message.contains("FALL_STATE:1") || message.contains("FALL DETECTED") || message.contains("FALL ALARM")) {
-                    tvUserPresenceStatus.text = "⚠️ EMERGENCY: Cane Fall Detected!"
-                    tvUserPresenceStatus.setTextColor(Color.RED)
-                } else if (message.contains("FALL_STATE:0") || message.contains("Fall Cleared")) {
+                val upper = message.uppercase()
+                if (upper.contains("FALL_STATE:0") || upper.contains("FALL_STATE: 0") || upper.contains("FALL CLEARED") || upper.contains("FALL:0") || upper.contains("FALL: 0")) {
                     tvUserPresenceStatus.text = "Presence: Cane Upright (Active)"
                     tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
+                    updateFallStateInFirestore(false)
+                } else if (upper.contains("FALL_STATE:1") || upper.contains("FALL_STATE: 1") || upper.contains("FALL DETECTED") || upper.contains("FALL ALARM") || upper.contains("FALL:1") || upper.contains("FALL: 1") || upper.contains("FALL")) {
+                    tvUserPresenceStatus.text = "⚠️ EMERGENCY: Cane Fall Detected!"
+                    tvUserPresenceStatus.setTextColor(Color.RED)
+                    updateFallStateInFirestore(true)
                 }
             }
         }
@@ -861,17 +892,21 @@ class MainActivity : AppCompatActivity() {
         pairedPresenceRef = rtdb.getReference("status/users/$pairedUserUid")
         pairedPresenceListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val state = snapshot.child("state").getValue(String::class.java)
-                if (state == "online") {
-                    tvUserPresenceStatus.text = "Presence: Online"
-                    tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
-                } else {
-                    tvUserPresenceStatus.text = "Presence: Offline"
-                    tvUserPresenceStatus.setTextColor(Color.parseColor("#757575"))
+                if (!isCaretakerFallAlertActive) {
+                    val state = snapshot.child("state").getValue(String::class.java)
+                    if (state == "online") {
+                        tvUserPresenceStatus.text = "Presence: Online"
+                        tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
+                    } else {
+                        tvUserPresenceStatus.text = "Presence: Offline"
+                        tvUserPresenceStatus.setTextColor(Color.parseColor("#757575"))
+                    }
                 }
             }
             override fun onCancelled(error: DatabaseError) {
-                tvUserPresenceStatus.text = "Presence: Error (${error.message})"
+                if (!isCaretakerFallAlertActive) {
+                    tvUserPresenceStatus.text = "Presence: Error (${error.message})"
+                }
             }
         }
         pairedPresenceRef?.addValueEventListener(pairedPresenceListener as ValueEventListener)
@@ -900,6 +935,27 @@ class MainActivity : AppCompatActivity() {
                     tvLocationSharingStatus.setTextColor(Color.parseColor("#F44336"))
                     tvLastLocationTime.text = "No location document created yet."
                     return@addSnapshotListener
+                }
+
+                val fallDetected = snapshot.getBoolean("fallDetected") ?: false
+                if (fallDetected) {
+                    isCaretakerFallAlertActive = true
+                    tvUserPresenceStatus.text = "⚠️ EMERGENCY: Cane Fall Detected!"
+                    tvUserPresenceStatus.setTextColor(Color.RED)
+                    if (!lastFallAlertNotified) {
+                        lastFallAlertNotified = true
+                        showFallAlertNotification(
+                            "⚠️ EMERGENCY: Fall Detected!",
+                            "IntelliCane user fall detected! Please check on the user immediately."
+                        )
+                    }
+                } else {
+                    if (isCaretakerFallAlertActive) {
+                        isCaretakerFallAlertActive = false
+                        tvUserPresenceStatus.text = "Presence: Cane Upright (Active)"
+                        tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
+                    }
+                    lastFallAlertNotified = false
                 }
 
                 val isSharing = snapshot.getBoolean("sharing") ?: false
@@ -1014,6 +1070,8 @@ class MainActivity : AppCompatActivity() {
         pairedPresenceListener = null
         pairedPresenceRef = null
         pairedLocationRegistration = null
+        lastFallAlertNotified = false
+        isCaretakerFallAlertActive = false
     }
 
     private fun startLocationUpdates() {
@@ -1155,6 +1213,82 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         mapView.onPause()
+    }
+
+    private fun updateFallStateInFirestore(fallDetected: Boolean) {
+        val uid = auth.currentUser?.uid
+        if (uid.isNullOrEmpty()) {
+            logToTerminal("[SYS] Cannot update fall state: User is not logged in!")
+            return
+        }
+
+        logToTerminal("[SYS] Uploading fall state ($fallDetected) to Firestore...")
+
+        val fallData = mapOf(
+            "fallDetected" to fallDetected,
+            "updatedAt" to FieldValue.serverTimestamp()
+        )
+
+        db.collection("users").document(uid).collection("location").document("current")
+            .set(fallData, SetOptions.merge())
+            .addOnSuccessListener {
+                logToTerminal("[SYS] Updated fallDetected=$fallDetected in location/current!")
+            }
+            .addOnFailureListener { e ->
+                logToTerminal("[SYS] Failed location/current fall update: ${e.localizedMessage}")
+            }
+
+        db.collection("users").document(uid)
+            .set(fallData, SetOptions.merge())
+            .addOnSuccessListener {
+                logToTerminal("[SYS] Updated fallDetected=$fallDetected in user profile!")
+            }
+            .addOnFailureListener { e ->
+                logToTerminal("[SYS] Failed user profile fall update: ${e.localizedMessage}")
+            }
+    }
+
+    private fun showFallAlertNotification(title: String, body: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                return
+            }
+        }
+
+        val channelId = "intellicane_fall_alert_channel"
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "IntelliCane Emergency Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Emergency notifications for fall detection alerts"
+                enableVibration(true)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(1001, notification)
     }
 
     override fun onDestroy() {
