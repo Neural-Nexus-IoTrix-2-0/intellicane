@@ -468,6 +468,10 @@ void loop() {
         if (digitalRead(PIN_BUTTON) == LOW && fallAlert) {
             fallAlert = false;
             Serial.println("[Button] Alarm cleared.");
+            if (bleClientConnected) {
+                blePrintln(">>> [BUTTON: ALARM CLEARED] Fall reset via button <<<");
+                blePrintln("FALL_STATE:0");
+            }
         }
 
         // MPU Read
@@ -494,6 +498,27 @@ void loop() {
                 if (mpuFailCount >= 10) {
                     mpuAvailable = false;
                     mpuFailCount = 0;
+                }
+            }
+        }
+
+        // Check for fall state transition and dispatch instant BLE notification
+        static bool previousFallState = false;
+        if (fallAlert != previousFallState) {
+            previousFallState = fallAlert;
+            if (fallAlert) {
+                Serial.printf("\n[FALL] >>> FALL ALARM TRIGGERED! Tilt: %.1f deg | Force: %.2f g <<<\n\n", tiltAngleDeg, gMagnitude);
+                if (bleClientConnected) {
+                    char fallMsg[96];
+                    snprintf(fallMsg, sizeof(fallMsg), "!!! [ALERT: FALL DETECTED!] Tilt: %.1f deg | Impact: %.2f g !!!", tiltAngleDeg, gMagnitude);
+                    blePrintln(fallMsg);
+                    blePrintln("FALL_STATE:1");
+                }
+            } else {
+                Serial.println("\n[FALL] <<< CANE RESTORED UPRIGHT / FALL CLEARED >>>\n");
+                if (bleClientConnected) {
+                    blePrintln(">>> [ALERT: CANE RESTORED UPRIGHT] Fall Cleared <<<");
+                    blePrintln("FALL_STATE:0");
                 }
             }
         }
@@ -554,11 +579,12 @@ void loop() {
             snprintf(bleStatusBuf, sizeof(bleStatusBuf), "ADVERTISING");
         }
 
-        char telemLine[160];
+        char telemLine[180];
         snprintf(telemLine, sizeof(telemLine),
-                 "[CANE-C3] Dist: %5.1f cm | Tilt: %s | Vib: %3d%% (PWM: %3d) | Buzzer: %s | BLE: %-22s | Alert: %s",
+                 "[CANE-C3] Dist: %5.1f cm | Tilt: %s | Fall: %d | Vib: %3d%% (PWM: %3d) | Buzz: %s | BLE: %-20s | Alert: %s",
                  distanceCm,
                  tiltBuf,
+                 fallAlert ? 1 : 0,
                  vibPercent,
                  currentMotorPwm,
                  buzzerState ? "ON" : "OFF",

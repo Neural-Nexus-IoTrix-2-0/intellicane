@@ -324,6 +324,15 @@ class MainActivity : AppCompatActivity() {
             scrollTerminal.post {
                 scrollTerminal.fullScroll(View.FOCUS_DOWN)
             }
+            if (isIncoming) {
+                if (message.contains("FALL_STATE:1") || message.contains("FALL DETECTED") || message.contains("FALL ALARM")) {
+                    tvUserPresenceStatus.text = "⚠️ EMERGENCY: Cane Fall Detected!"
+                    tvUserPresenceStatus.setTextColor(Color.RED)
+                } else if (message.contains("FALL_STATE:0") || message.contains("Fall Cleared")) {
+                    tvUserPresenceStatus.text = "Presence: Cane Upright (Active)"
+                    tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
+                }
+            }
         }
     }
 
