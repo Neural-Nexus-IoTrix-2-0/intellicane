@@ -535,16 +535,24 @@ void loop() {
     // Refresh time after blocking sensor reads.
     now = millis();
     const ProximityFeedback feedback = feedbackForDistance(distanceCm);
-    currentMotorPwm = feedback.motorDuty;
-    setMotorPwm(currentMotorPwm);
 
-    // Fall detection retains its audible warning, but cannot override motor distance gating.
-    uint8_t soundMode = fallAlert ? 2 : (feedback.motorDuty > 0 ? 1 : 0);
-    buzzerState = beepEnvelope.update(now,
-        fallAlert ? 200 : feedback.beepOnMs,
-        fallAlert ? 200 : feedback.beepOffMs, soundMode);
-    setBuzzer(buzzerState, fallAlert ? 2400 : feedback.toneHz);
-    digitalWrite(PIN_LED_C3, (currentMotorPwm > 0 || buzzerState) ? LOW : HIGH);
+    if (fallAlert) {
+        // Fall detected: Silent emergency mode on the cane (no haptic buzz or buzzer alarm).
+        // The cane remains quiet to avoid user distress; notifications are dispatched via BLE to the caretaker app.
+        currentMotorPwm = 0;
+        setMotorPwm(0);
+        buzzerState = false;
+        setBuzzer(false);
+        // Visual indicator on the board stays active to show emergency state
+        digitalWrite(PIN_LED_C3, LOW);
+    } else {
+        // Normal navigation: obstacle proximity feedback
+        currentMotorPwm = feedback.motorDuty;
+        setMotorPwm(currentMotorPwm);
+        buzzerState = beepEnvelope.update(now, feedback.beepOnMs, feedback.beepOffMs, feedback.motorDuty > 0 ? 1 : 0);
+        setBuzzer(buzzerState, feedback.toneHz);
+        digitalWrite(PIN_LED_C3, (currentMotorPwm > 0 || buzzerState) ? LOW : HIGH);
+    }
 
     // ------------------------------------------------------------------------
     // 4. Telemetry Stream every 250ms
