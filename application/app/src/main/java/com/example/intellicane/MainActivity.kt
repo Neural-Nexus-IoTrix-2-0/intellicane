@@ -92,6 +92,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnBluetooth: Button
     private lateinit var btnToggleLocationSharing: Button
 
+    private lateinit var layoutUserDashboard: LinearLayout
+    private lateinit var tvUserDashboardPresence: TextView
+    private lateinit var tvUserDashboardSharing: TextView
+    private lateinit var tvConnectionHint: TextView
+    private lateinit var btnToggleTerminal: Button
+
     private lateinit var cardCaretakerStatus: CardView
     private lateinit var tvUserPresenceStatus: TextView
     private lateinit var tvLocationSharingStatus: TextView
@@ -105,6 +111,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scrollTerminal: ScrollView
     private lateinit var tvTerminalOutput: TextView
     private lateinit var tvClearTerminal: TextView
+    private lateinit var tvCloseTerminal: TextView
 
     private lateinit var cardMap: CardView
     private lateinit var mapView: MapView
@@ -357,10 +364,18 @@ class MainActivity : AppCompatActivity() {
                 if (upper.contains("FALL_STATE:0") || upper.contains("FALL_STATE: 0") || upper.contains("FALL CLEARED") || upper.contains("FALL:0") || upper.contains("FALL: 0")) {
                     tvUserPresenceStatus.text = "Presence: Cane Upright (Active)"
                     tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
+                    if (::tvUserDashboardPresence.isInitialized) {
+                        tvUserDashboardPresence.text = "Status: Connected (Upright)"
+                        tvUserDashboardPresence.setTextColor(Color.parseColor("#4CAF50"))
+                    }
                     updateFallStateInFirestore(false)
                 } else if (upper.contains("FALL_STATE:1") || upper.contains("FALL_STATE: 1") || upper.contains("FALL DETECTED") || upper.contains("FALL ALARM") || upper.contains("FALL:1") || upper.contains("FALL: 1") || upper.contains("FALL")) {
                     tvUserPresenceStatus.text = "⚠️ EMERGENCY: Cane Fall Detected!"
                     tvUserPresenceStatus.setTextColor(Color.RED)
+                    if (::tvUserDashboardPresence.isInitialized) {
+                        tvUserDashboardPresence.text = "⚠️ EMERGENCY: Cane Fall Detected!"
+                        tvUserDashboardPresence.setTextColor(Color.RED)
+                    }
                     updateFallStateInFirestore(true)
                 }
             }
@@ -414,6 +429,13 @@ class MainActivity : AppCompatActivity() {
         btnBluetooth = findViewById(R.id.btnBluetooth)
         btnToggleLocationSharing = findViewById(R.id.btnToggleLocationSharing)
 
+        // User Dashboard & Floating Terminal Toggle
+        layoutUserDashboard = findViewById(R.id.layoutUserDashboard)
+        tvUserDashboardPresence = findViewById(R.id.tvUserDashboardPresence)
+        tvUserDashboardSharing = findViewById(R.id.tvUserDashboardSharing)
+        tvConnectionHint = findViewById(R.id.tvConnectionHint)
+        btnToggleTerminal = findViewById(R.id.btnToggleTerminal)
+
         // Caretaker Status
         cardCaretakerStatus = findViewById(R.id.cardCaretakerStatus)
         tvUserPresenceStatus = findViewById(R.id.tvUserPresenceStatus)
@@ -433,6 +455,7 @@ class MainActivity : AppCompatActivity() {
         scrollTerminal = findViewById(R.id.scrollTerminal)
         tvTerminalOutput = findViewById(R.id.tvTerminalOutput)
         tvClearTerminal = findViewById(R.id.tvClearTerminal)
+        tvCloseTerminal = findViewById(R.id.tvCloseTerminal)
 
         cardMap = findViewById(R.id.cardMap)
         mapView = findViewById(R.id.mapView)
@@ -443,6 +466,10 @@ class MainActivity : AppCompatActivity() {
 
         tvClearTerminal.setOnClickListener {
             tvTerminalOutput.text = "> Terminal cleared.\n"
+        }
+
+        tvCloseTerminal.setOnClickListener {
+            cardTerminal.visibility = View.GONE
         }
 
         fabMyLocation.setOnClickListener {
@@ -458,6 +485,15 @@ class MainActivity : AppCompatActivity() {
                 stopLocationSharing()
             } else {
                 startLocationSharing()
+            }
+        }
+
+        btnToggleTerminal.setOnClickListener {
+            if (cardTerminal.visibility == View.VISIBLE) {
+                cardTerminal.visibility = View.GONE
+            } else {
+                cardTerminal.visibility = View.VISIBLE
+                btnToggleTerminal.bringToFront()
             }
         }
 
@@ -606,6 +642,10 @@ class MainActivity : AppCompatActivity() {
         isLocationSharingActive = true
         btnToggleLocationSharing.text = "Stop Sharing"
         btnToggleLocationSharing.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F44336"))
+        if (::tvUserDashboardSharing.isInitialized) {
+            tvUserDashboardSharing.text = "Location Sharing: Active"
+            tvUserDashboardSharing.setTextColor(Color.parseColor("#4CAF50"))
+        }
 
         startLocationUpdates()
         requestFreshLocationForUser()
@@ -620,6 +660,10 @@ class MainActivity : AppCompatActivity() {
         locationSharingHandler.removeCallbacks(locationSharingRunnable)
         btnToggleLocationSharing.text = "Share Loc"
         btnToggleLocationSharing.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2196F3"))
+        if (::tvUserDashboardSharing.isInitialized) {
+            tvUserDashboardSharing.text = "Location Sharing: Stopped"
+            tvUserDashboardSharing.setTextColor(Color.parseColor("#888888"))
+        }
 
         val uid = auth.currentUser?.uid ?: return
         val stopMap = mapOf(
@@ -743,8 +787,9 @@ class MainActivity : AppCompatActivity() {
     private fun showRoleSelectionScreen() {
         hideLoading()
         layoutSelection.visibility = View.VISIBLE
-        btnBluetooth.visibility = View.GONE
+        layoutUserDashboard.visibility = View.GONE
         btnToggleLocationSharing.visibility = View.GONE
+        btnToggleTerminal.visibility = View.GONE
         cardTerminal.visibility = View.GONE
         cardMap.visibility = View.GONE
         cardCaretakerStatus.visibility = View.GONE
@@ -843,16 +888,19 @@ class MainActivity : AppCompatActivity() {
 
         if (role == "user") {
             stopCaretakerMonitoring()
-            btnBluetooth.visibility = View.VISIBLE
+            layoutUserDashboard.visibility = View.VISIBLE
             btnToggleLocationSharing.visibility = View.VISIBLE
-            cardTerminal.visibility = View.VISIBLE
+            btnToggleTerminal.visibility = View.VISIBLE
+            btnToggleTerminal.bringToFront()
+            cardTerminal.visibility = View.GONE
             cardMap.visibility = View.GONE
             cardCaretakerStatus.visibility = View.GONE
             updateBluetoothButtonState()
             startLocationUpdates()
         } else if (role == "caretaker") {
-            btnBluetooth.visibility = View.GONE
+            layoutUserDashboard.visibility = View.GONE
             btnToggleLocationSharing.visibility = View.GONE
+            btnToggleTerminal.visibility = View.GONE
             cardTerminal.visibility = View.GONE
             cardMap.visibility = View.VISIBLE
             cardCaretakerStatus.visibility = View.VISIBLE
@@ -1197,11 +1245,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateBluetoothButtonState() {
         if (isConnected) {
-            btnBluetooth.text = "Disconnect"
+            btnBluetooth.text = "DISCONNECT"
             btnBluetooth.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F44336")) // Red
+            if (::tvUserDashboardPresence.isInitialized) {
+                tvUserDashboardPresence.text = "Status: Connected to IntelliCane"
+                tvUserDashboardPresence.setTextColor(Color.parseColor("#4CAF50"))
+            }
+            if (::tvConnectionHint.isInitialized) {
+                tvConnectionHint.text = "Tap to disconnect from BLE"
+            }
         } else {
-            btnBluetooth.text = "Connect"
+            btnBluetooth.text = "CONNECT"
             btnBluetooth.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50")) // Green
+            if (::tvUserDashboardPresence.isInitialized) {
+                tvUserDashboardPresence.text = "Status: Cane Disconnected"
+                tvUserDashboardPresence.setTextColor(Color.parseColor("#888888"))
+            }
+            if (::tvConnectionHint.isInitialized) {
+                tvConnectionHint.text = "Tap to connect to IntelliCane"
+            }
         }
     }
 
