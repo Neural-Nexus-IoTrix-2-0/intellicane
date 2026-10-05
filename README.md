@@ -17,7 +17,7 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 - [System architecture](docs/architecture.md)
 - [Software validation evidence](docs/test-logs/2026-10-05-software-validation.md)
 - [Hardware wiring guide](hardware/wiring.md) & [Circuit schematic](hardware/circuit_diagram.png)
-- [Android Companion App](application/) (`com.example.intellicane` — User Dashboard, Caretaker Mode, OSMDroid/ESRI map with FAB centering, Firestore fall synchronization)
+- [Android Companion App](application/) (`com.example.intellicane` — User Dashboard, Caretaker Mode, live GPS map, and instant emergency push notifications with sound & vibration on fall detection)
 
 ## Current behavior
 
@@ -64,7 +64,7 @@ The host tests cover feedback logic, not physical sensor accuracy or electrical 
 
 ## Implemented and planned
 
-**Implemented in active firmware & app:** ranging, PWM proportional haptic feedback, configurable buzzer proximity tone, silent fall detection with instant BLE notification dispatch (`FALL_STATE:1`), serial diagnostics, BLE NUS notifications, native Android application (`com.example.intellicane`) with Blind User Dashboard, collapsible floating terminal, Caretaker Mode, live ESRI/OSMDroid map with user-centering FAB, and Firebase Firestore fall synchronization.
+**Implemented in active firmware & app:** ranging, smooth proportional haptic feedback, buzzer proximity tone, silent fall detection on the cane with instant BLE dispatch (`FALL_STATE:1`), serial diagnostics, native Android application (`com.example.intellicane`) with Blind User Dashboard, collapsible floating terminal, Caretaker Mode, live ESRI/OSMDroid map with user-centering FAB, and real-time Firestore sync with automated emergency push notifications (sound & vibration) on the caretaker's phone.
 
 **Planned:** battery monitoring and runtime validation, final mechanical packaging with TPU shock damping, downward drop/curb sensing, and optional secondary Time-of-Flight ranging.
 

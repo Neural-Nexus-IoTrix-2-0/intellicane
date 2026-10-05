@@ -20,7 +20,7 @@ IntelliCane connects an embedded ESP32-C3 SuperMini on the cane with an accessib
 
 The cane's microcontroller handles safety reflexes locally in a sub-50 ms cooperative loop without any blocking delays:
 - **Hardware Sensing:** HC-SR04 Echo connects directly to GPIO 1, and the MPU6050 runs over I2C (GPIO 4/5) with our custom direct-register fallback driver.
-- **Companion Android App (`application/`):** Connects via BLE 5.0 Nordic UART Service. It provides a high-contrast **Blind User Dashboard** with one-tap location sharing, a **collapsible floating terminal** to inspect live sensor feeds, **Caretaker Mode** with an interactive OSMDroid/ESRI map with a dedicated centering FAB (18.5x zoom), and **Firebase Cloud Firestore synchronization** that immediately alerts remote caretakers when a fall occurs. Using the phone's native GPS eliminates the cost, weight, and battery drain of a dedicated GPS module on the cane.
+- **Companion Android App (`application/`):** Connects via BLE 5.0 Nordic UART Service. It provides a high-contrast **Blind User Dashboard** with one-tap location sharing, a **collapsible floating terminal** to inspect live sensor feeds, **Caretaker Mode** with an interactive OSMDroid/ESRI map with a dedicated centering FAB (18.5x zoom), and **Firebase Cloud Firestore synchronization with high-priority push notifications** (`showFallAlertNotification`) that trigger emergency sound and vibration on the caretaker's phone the moment a fall is detected. Using the phone's native GPS eliminates the cost, weight, and battery drain of a dedicated GPS module on the cane.
 
 ## Technology & Components
 
@@ -32,7 +32,7 @@ The cane's microcontroller handles safety reflexes locally in a sub-50 ms cooper
 
 ## Testing What We Built
 
-- **Host Unit Tests (`tests/proximity_feedback_test.cpp`):** 100% pass across boundary values, invalid inputs (negative, zero, NaN, $\infty$), smooth PWM ramping, motor polarity flips, and 32-bit `millis()` rollover resilience.
+- **Automated Software Tests (`tests/proximity_feedback_test.cpp`):** 100% pass across boundary values, invalid inputs (negative, zero, NaN, $\infty$), smooth PWM ramping, motor polarity flips, and 32-bit `millis()` rollover resilience.
 - **Bench Distance Checks:** HC-SR04 verified with physical measuring tape from 2 cm to 250 cm with $\pm 1.5$ cm accuracy. Motor vibration engages deterministically at 59.9 cm and reaches full power at 10 cm.
 - **Tilt Verification:** Calibrated with a digital protractor; the fall trigger activates reliably at $>65^\circ$ and silences within 200 ms once the cane is upright ($<30^\circ$).
 - **Wireless BLE Performance:** Telemetry stream validated at 10 Hz to smartphone with $<25$ ms latency over a 10 m range. Electronics stayed cool ($<32^\circ$C) during continuous vibration tests.
