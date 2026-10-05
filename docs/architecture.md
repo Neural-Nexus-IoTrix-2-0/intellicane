@@ -1,114 +1,43 @@
-# Intelligent Cane — System Architecture
+# Current Intelligent Cane architecture
 
-**Neural-Nexus IoTrix 2.0 (Track A: Embedded IoT System Development)**
-
----
-
-## 1. System Overview
-
-The Intelligent Cane is designed to empower visually impaired individuals with safe, proactive, and independent navigation. The complete solution spans three modular subsystems:
+**As of 5 October 2026.** Active implementation: `firmware/core-sensing/`. The archived dual-ToF design and Wokwi example are not the current physical build.
 
 ```mermaid
-flowchart TD
-    subgraph Subsystem1 ["Subsystem 1: Safety-Critical Sensing (ESP32-C3 SuperMini - Offline)"]
-        US["HC-SR04 Ultrasonic Distance Sensor"]
-        IMU["MPU6050 6-Axis IMU (Tilt / Fall)"]
-        MCU1["ESP32-C3 SuperMini Controller"]
-        VIB["Haptic Vibration Motor (Direct GPIO 6 PWM)"]
-        BUZZ["Emergency Buzzer (GPIO 7)"]
-        
-        US -->|Trig: GPIO 0, Echo: GPIO 1 (Direct)| MCU1
-        IMU -->|I2C: SDA 4, SCL 5| MCU1
-        MCU1 -->|LEDC 200Hz PWM Duty| VIB
-        MCU1 -->|Urgent Hazard Tone| BUZZ
-    end
-
-    subgraph Subsystem2 ["Subsystem 2: BLE Smartphone Telemetry & Geolocation (Phase 2)"]
-        MCU1BLE["ESP32-C3 SuperMini (BLE 5.0)"]
-        PHONE["Companion Smartphone (App)"]
-        AGPS["Smartphone A-GPS / Wi-Fi Geolocation"]
-        DASH["Caregiver Web Dashboard"]
-        
-        MCU1BLE -->|BLE Telemetry & Fall Alert| PHONE
-        AGPS -->|Coordinates (Lat/Lon)| PHONE
-        PHONE -->|4G/5G/Wi-Fi Telemetry Uplink| DASH
-    end
-
-    subgraph Subsystem3 ["Subsystem 3: AI Vision & Voice Pipeline (Phase 3)"]
-        CAM["ESP32-CAM (OV2640)"]
-        VLM["Off-Device AI Voice Service (VLM + TTS)"]
-        EAR["Bluetooth Earpiece / User Audio"]
-        
-        CAM -->|Wi-Fi Snapshot| VLM
-        VLM -->|Spoken Audio Description| EAR
-    end
+flowchart LR
+    US[HC-SR04] -->|TRIG 0 / level-shifted ECHO 1| MCU[ESP32-C3 SuperMini]
+    IMU[GY-521 / MPU6050] -->|I2C SDA 4 / SCL 5| MCU
+    MCU -->|PWM GPIO 6| MOTOR[Motor module]
+    MCU -->|GPIO 7| BUZZ[Buzzer]
+    MCU -->|USB CDC| USB[Laptop telemetry]
+    MCU -->|BLE NUS notifications| PHONE[Phone terminal]
+    PHONE -. Planned companion app .-> LOC[Phone location]
+    LOC -. Planned network delivery .-> CARE[Caregiver service]
 ```
 
----
+Solid connections identify implemented firmware interfaces, not a claim that every physical path has passed bench testing. Dashed connections are future work. Camera/AI and downward sensing are outside this build.
 
-## 2. Phase 1 Firmware Architecture (`core-sensing`)
+## Control logic
 
-Phase 1 operates with zero cloud or internet connectivity. It guarantees deterministic response times ($\le 50\text{ ms}$) from physical hazard detection to tactile feedback.
+For valid distance d below 60 cm, proximity = min((60-d)/50, 1). Motor duty = integer(100 + 155*proximity), on an 8-bit 0-255 scale. At d >=60 cm or invalid/nonpositive d, obstacle motor output is zero. PWM frequency is 200 Hz. Obstacle beep ON time increases from about 60 to 200 ms and OFF time decreases from about 740 to 40 ms. Active-buzzer mode is selected by default; passive mode additionally changes tone frequency.
 
-### 2.1 Software Component Hierarchy
+The IMU alarm sets when tilt >=65 degrees OR acceleration magnitude >=2.5 g. It clears below 30 degrees when the triggering condition is absent. Tilt uses the magnitude of the sensor Z-axis acceleration relative to total acceleration, so mounting orientation matters. No timed free-fall, debounce or immobility sequence is present. The alarm uses a 200 ms ON / 200 ms OFF buzzer pattern and does not override motor distance gating.
 
-```
-firmware/core-sensing/
-├── core-sensing.ino        # Production firmware (HC-SR04, MPU6050, direct motor drive, self-test)
-├── platformio.ini          # PlatformIO build configuration (board: esp32-c3-devkitm-1)
-└── README.md               # Hardware pinout, bench wiring guide, and flashing instructions
+## Timing and communications
 
-firmware/archived-dual-tof/ # Archived dual-ToF modular architecture (VL53L1X + VL53L0X)
-```
+- Sensor reads are attempted every 40 ms.
+- `pulseIn` may block for up to its configured 26,000 microsecond timeout.
+- Telemetry is scheduled every 250 ms, nominally 4 updates/s.
+- BLE messages are split into chunks of at most 20 bytes, with 4 ms delays between chunks.
+- MPU retry attempts occur every 2 seconds while unavailable and perform synchronous work.
 
----
+This is cooperative loop scheduling with blocking operations. End-to-end response time has not been measured. BLE runs on the same MCU as local feedback.
 
-## 3. Sensory Feedback & Alert Logic
+## Failure handling and gaps
 
-### 3.1 Forward Obstacle Proximity Mapping
+No Echo returns NaN and disables obstacle feedback. Telemetry labels it NO ECHO unless the IMU alarm takes precedence. It is an unknown distance, not verified clear space. An unavailable MPU appears as NO_MPU. Distinct user-facing sensor fault feedback is future work.
 
-Forward distance measured by the HC-SR04 ultrasonic sensor is mapped continuously to vibration motor PWM duty cycle (closer obstacles produce increasing vibration):
+BLE disconnect handling restarts advertising. Location, buffering, caregiver delivery acknowledgments, battery monitoring and remote-control security are not complete. The reset parser currently accepts any received string containing lowercase `r`, so a strict command parser is a planned correction.
 
-| Distance ($d$) | Alert Level | Vibration Motor Duty Cycle | Buzzer Status | Status LED |
-|:---|:---|:---:|:---:|:---:|
-| $d > 150\text{ cm}$ | Clear | 0% (OFF) | Silent | Solid Green / Slow pulse |
-| $80\text{ cm} < d \le 150\text{ cm}$ | Caution | 30% – 60% (Gradual) | Silent | Solid Green |
-| $30\text{ cm} < d \le 80\text{ cm}$ | Warning | 60% – 95% (Strong) | Silent | Amber Blink |
-| $d \le 30\text{ cm}$ | **Critical** | **100% (Continuous Maximum)** | **Active Warning Tone** | Rapid Red Blink |
+## Electrical reference
 
-$$\text{PWM Duty} = \text{constrain}\left(255 - \frac{d - d_{min}}{d_{max} - d_{min}} \times (255 - \text{PWM}_{min}),\ \text{PWM}_{min},\ 255\right)$$
-
-### 3.2 Drop-off Detection (Curbs, Stairs, Holes)
-
-1. Ground distance ($h_{ground}$) is measured at an inclined downward angle ($\approx 45^\circ$).
-2. A normal walking baseline is dynamically tracked or calibrated (nominal $\approx 35 - 45\text{ cm}$).
-3. When $h_{ground} > h_{baseline} + \Delta h_{thresh}$ (e.g. $> 60\text{ cm}$) or when out-of-range beam reflection occurs:
-   - **Drop-off Trigger Active**: Overrides forward proximity vibration with a distinct **double-pulse rhythmic burst**:
-     - `150ms ON` $\rightarrow$ `80ms OFF` $\rightarrow$ `150ms ON` $\rightarrow$ `250ms OFF`.
-   - Tactile signature is instantly distinguishable from steady proximity buzz.
-
-### 3.3 Fall Detection State Machine (MPU6050)
-
-```mermaid
-stateDiagram-v2
-    [*] --> NormalUse: System Booted
-    NormalUse --> FreefallSuspected: Acceleration < 0.4g (Sudden Drop)
-    FreefallSuspected --> ImpactDetected: Impact Spike > 2.5g within 400ms
-    FreefallSuspected --> NormalUse: Timeout (No Impact)
-    ImpactDetected --> ImmobilityCheck: Cane stationary after impact
-    ImmobilityCheck --> FallAlarmTriggered: Cane horizontal (>65 deg)
-    ImmobilityCheck --> NormalUse: Motion resumed (False alarm)
-    FallAlarmTriggered --> NormalUse: Cane restored upright (<30 deg) or Reset button
-```
-
----
-
-## 4. Loop Timing & Non-blocking Scheduling
-
-All sensor drivers and actuator patterns run non-blockingly using cooperative millisecond scheduling in `loop()`:
-
-- **Forward Sensor (VL53L1X)**: Sampled every **30 ms (~33 Hz)** in Short/Medium distance mode.
-- **Downward Sensor (Ultrasonic/ToF)**: Sampled every **50 ms (20 Hz)**.
-- **IMU (MPU6050)**: Sampled every **20 ms (50 Hz)** for responsive tilt/fall tracking.
-- **Actuator Update (Haptic & Buzzer)**: Updated every **10 ms (100 Hz)** for precise pulse timings without `delay()`.
-- **Serial Diagnostics Telemetry**: Formatted packet output every **100 ms (10 Hz)** for real-time serial plotting.
+See `hardware/circuit_diagram.png` and `hardware/wiring.md`. Use a common ground, 3.3 V I2C pull-ups, Echo level conversion, and a verified motor driver. These requirements apply to the bench prototype.

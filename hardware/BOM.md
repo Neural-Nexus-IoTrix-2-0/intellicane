@@ -15,9 +15,9 @@ Target Prototype Budget: **LKR 20,000 – 35,000**
 | 4 | Haptic Actuator Module | **3-Pin Vibration Motor Module** (Integrated Driver) | 1 | 250 | 250 | Tactile feedback with onboard driver |
 | 5 | Audible Alarm & Wiring | Active / Passive 5V Buzzer + breadboard jumpers | 1 lot | 100 | 100 | Audio hazard alerts & breadboard hookup |
 | 6 | Discrete Driver & Diode | 2N2222 / 1N4148 (Not needed with 3-pin module) | 0 | 0 | 0 | *Included directly on 3-pin module PCB* |
-| 7 | Voltage Divider Resistors | 1kΩ and 2kΩ Resistors | 0 | 0 | 0 | *Omitted in bench build (direct GPIO 1 Echo used)* |
+| 7 | Required Echo Divider | 1kΩ and 1.8kΩ resistors | 1 pair | TBD | TBD | Required for standard 5V HC-SR04; verify fitted before powering |
 | 8 | Pushbutton | 6x6mm tactile momentary pushbutton | 0 | 0 | 0 | *Omitted in bench build (auto-reset on upright used)* |
-| **Actual Phase 1 Bench Build Total** | | | | | **Rs. 2,800** | **Completed & Fully Bench-Tested** |
+| **Recorded Base Electronics Subtotal** | | | | | **Rs. 2,800** | Excludes unpriced divider; physical validation pending records |
 
 ### Optional Phase 1 Commercial Packaging & Power (Estimated)
 | Item | Component Description | Model / Spec | Qty | Unit Price (LKR) | Subtotal (LKR) | Notes |
@@ -32,8 +32,8 @@ Target Prototype Budget: **LKR 20,000 – 35,000**
 
 | Item | Component Description | Model / Spec | Qty | Unit Price (LKR) | Subtotal (LKR) | Notes |
 |:---|:---|:---|:---:|:---:|:---:|:---|
-| 12 | Geolocation & Tracking | **Smartphone BLE Location Bridge** (Companion App) | 1 | **0** | **0** | **Uses phone internal A-GPS over BLE; eliminates separate GPS hardware module, saving power & cost** |
+| 12 | Geolocation & Tracking | **Smartphone BLE Location Bridge** (Companion App) | 1 | **0** | **0** | Planned software; assumes an existing compatible phone. Power/location performance unmeasured. |
 | 13 | Secondary Vision MCU | ESP32-CAM (with OV2640 2MP Camera) | 1 | 2,600 | 2,600 | Phase 3 Camera module |
 | 14 | FTDI Programmer | FT232RL USB-to-UART (for ESP32-CAM) | 1 | 950 | 950 | Flashing tool for CAM module |
 | 15 | 3D Printed Enclosure | PETG / PLA custom ergonomic handle | 1 | 3,500 | 3,500 | Enclosure & sensor hood |
-| **Total Cumulative System (Full 3-Phase)** | | | | | **~LKR 11,500 – 14,000** | **Target ceiling: LKR 20,000–35,000 (Dramatically under budget)** |
+| **Total Cumulative System (Full 3-Phase)** | | | | | **LKR 14,400 + unpriced items** | Sum of all listed priced rows; excludes phone and service costs |

@@ -1,185 +1,73 @@
-# Intelligent Cane (`intelligent-cane`)
+# Intelligent Cane
 
-> **Neural-Nexus | IoTrix 2.0 (Track A: Embedded IoT System Development)**  
-> Low-cost, offline-safe, multimodal smart mobility cane for visually impaired individuals.
+**Neural-Nexus · IoTrix 2.0 · Track A: Embedded IoT System Development**
 
----
+An ESP32-C3 SuperMini bench prototype for supplementary obstacle awareness. An ultrasonic sensor controls proportional vibration and audible feedback. An inertial sensor provides a cane orientation/impact alarm. Local feedback does not require a phone or internet service.
 
-## 1. Project Overview
+**Team:** Dulnith, Thenul, Chamith, Suneth. **Status on 5 October 2026:** basic hardware connected, active firmware compiles, existing host logic tests pass. Physical accuracy, end-to-end latency, BLE range and battery runtime still need recorded measurements. A cane alarm is not validated human-fall detection.
 
-The Intelligent Cane is an assistive IoT device designed to provide proactive navigation assistance, ground drop-off protection, emergency fall alerts, and ambient visual context for visually impaired users.
+## Semi-final package
 
-### Three Integrated Subsystems
+The latest organizer announcement specifies **10 minutes total: 4 minutes demonstration, 2 minutes progress check, 4 minutes Q&A**. All four members must attend with cameras on. Presentation slides are optional and receive no separate marks.
 
-```
-                               ┌────────────────────────────────────────────────────────┐
-                               │                    INTELLIGENT CANE                    │
-                               └──────────────────────────┬─────────────────────────────┘
-                                                          │
-         ┌────────────────────────────────────────────────┼────────────────────────────────────────┐
-         │                                                │                                        │
-         ▼                                                ▼                                        ▼
-┌─────────────────────────────────┐      ┌─────────────────────────────────┐      ┌─────────────────────────────────┐
-│           Phase 1               │      │            Phase 2              │      │            Phase 3              │
-│       Core Sensing              │      │    BLE Geolocation & Telemetry  │      │        AI Voice Layer           │
-├─────────────────────────────────┤      ├─────────────────────────────────┤      ├─────────────────────────────────┤
-│ • ESP32-C3 SuperMini (RISC-V)   │      │ • Smartphone BLE A-GPS Bridge   │      │ • Dedicated ESP32-CAM Board     │
-│ • HC-SR04 Ultrasonic Sensor     │      │ • Low-power BLE 5.0 Broadcast   │      │ • Cloud/Phone VLM (Gemini/GPT4o)│
-│ • MPU6050 6-Axis Tilt & Fall    │      │ • Zero Extra Hardware Cost      │      │ • Cloud Neural Text-to-Speech   │
-│ • Proportional Haptic PWM       │      │ • Family Web Dashboard          │      │ • Spoken Ambient Scene Q&A      │
-│ • Piezo Alarm & Fall Siren      │      │ • Emergency Geolocation Push    │      │ • Off-device heavy computation  │
-│ • 100% Offline & Deterministic  │      │ • Works indoors & outdoors      │      │                                 │
-└─────────────────────────────────┘      └─────────────────────────────────┘      └─────────────────────────────────┘
-```
+- [Technical progress sheet](docs/IoTrix_SemiFinal_Technical_Progress_Sheet.md)
+- [10-minute demonstration and Q&A guide](docs/IoTrix_SemiFinal_Defense_and_Demo_Guide.md)
+- [Current architecture](docs/architecture.md)
+- [Software validation evidence](docs/test-logs/2026-10-05-software-validation.md)
+- [Physical test record template](docs/test-logs/physical-test-template.md)
+- [Project proposal](docs/proposals/Intelligent_Cane_Proposal.md)
+- [Submission checklist](docs/SUBMISSION_CHECKLIST.md)
+- Deliverable files: `output/semifinal/`
 
-1. **Obstacle & Hazard Detection (Phase 1 — Active Build)**:
-   - **Safety-Critical & Fully Offline**: Operates without any internet, Bluetooth, or cloud dependencies.
-   - **Forward Proximity**: HC-SR04 ultrasonic sensor measures distance up to 4 meters, modulating ERM vibration motor PWM intensity (closer = stronger vibration).
-   - **Audible Hazard Warning**: Piezo buzzer activates when forward obstacles are dangerously close ($< 30\text{ cm}$).
-   - **Fall & Tilt Sensing**: MPU6050 IMU detects sudden drops, impact spikes, and extended immobility on the floor.
-   - **Ultra-Compact Form Factor**: Driven by the stamp-sized ESP32-C3 SuperMini with native USB-C.
+## Current behavior
 
-2. **Smartphone BLE Geolocation & Telemetry (Phase 2)**:
-   - **No Standalone GPS Hardware Needed**: Leverages the user's companion smartphone via BLE 5.0 to fetch precise Assisted GPS (A-GPS), cell tower, and Wi-Fi geolocation.
-   - Drastically cuts power consumption, avoids indoor satellite blind spots, and saves weight and budget.
-   - Emergency fall and SOS alerts automatically trigger the smartphone app to upload coordinates and status to the family caregiver dashboard.
+| Input | Firmware behavior |
+|---|---|
+| Valid distance >=60 cm | Obstacle vibration and beeps off |
+| Valid distance <60 cm | Increasing motor PWM and beep urgency as distance decreases |
+| Distance <=10 cm, greater than zero | Full commanded motor duty |
+| Missing Echo / invalid distance | Obstacle feedback off; telemetry indicates NO ECHO for nonfinite readings |
+| Tilt >=65 degrees OR acceleration >=2.5 g | Cane orientation/impact alarm |
+| Tilt <30 degrees with trigger absent | Alarm clears |
 
-3. **AI Voice Vision Layer (Phase 3)**:
-   - Dedicated ESP32-CAM module captures environment snapshots on demand.
-   - Companion cloud/smartphone service runs multimodal Vision-Language Model (VLM) + Neural TTS to describe immediate surroundings, obstacles, signs, or currency into the user's earpiece.
+An IMU alarm can sound independently of obstacle distance. The current alarm has no 1.5-second debounce or immobility classifier. Motor duty is a command, not a calibrated measure of perceived vibration.
 
----
+## Hardware and interfaces
 
-## 2. Repository Structure
+| Component | Connection |
+|---|---|
+| HC-SR04 | TRIG GPIO 0; ECHO GPIO 1 through level conversion |
+| GY-521 / MPU6050 | SDA GPIO 4, SCL GPIO 5; I2C at 100 kHz |
+| 3-pin vibration module | IN GPIO 6; module power from its rated supply |
+| Buzzer | GPIO 7; driver and supply appropriate to actual buzzer |
+| Optional reset button | GPIO 3 to GND, INPUT_PULLUP |
+| Onboard LED | GPIO 8, active LOW |
 
-```
-intelligent-cane/
-├── firmware/                       # Embedded C++/Arduino code
-│   ├── core-sensing/               # Phase 1 Active Build: ESP32-C3 SuperMini + HC-SR04 + MPU6050
-│   │   ├── core-sensing.ino        # Production sketch with 200Hz PWM, buzzer, and self-test
-│   │   ├── platformio.ini          # PlatformIO configuration (board: esp32-c3-devkitm-1)
-│   │   └── README.md               # Pinout and flashing instructions
-│   ├── archived-dual-tof/          # Archived reference build (dual VL53L1X/VL53L0X ToF)
-│   ├── gps-tracking/               # Phase 2: GPS NMEA parsing & telemetry reporting
-│   └── cam-module/                 # Phase 3: Dedicated ESP32-CAM snapshot streamer
-├── ai-voice-service/                # Phase 3: Cloud/companion VLM + TTS pipeline
-├── dashboard/                       # Family-facing web dashboard (HTML/JS)
-├── hardware/                        # Hardware schematics, wiring, and BOM
-│   ├── circuit_diagram.png         # Official ESP32-C3 SuperMini schematic diagram
-│   ├── wiring.md                   # Pinouts, direct bench wiring, production driver circuits
-│   ├── BOM.md                      # Component list and LKR budget tracking
-│   └── README.md
-├── docs/                            # Architectural specifications & decision logs
-│   ├── IoTrix_SemiFinal_Technical_Progress_Sheet.md # Official 1-page progress sheet (Oct 5 submission)
-│   ├── IoTrix_SemiFinal_Defense_and_Demo_Guide.md   # 12-min presentation & Q&A defense guide
-│   ├── architecture.md             # System architecture & block diagrams
-│   ├── decisions.md                # Architecture Decision Records (ADRs)
-│   ├── PROGRESS_REPORT.md          # Executive technical progress report
-│   └── README.md
-├── simulation/                      # Wokwi simulation workspace
-├── tests/                           # Host-runnable C++ unit tests
-├── .gitignore
-└── README.md
-```
+A standard 5 V HC-SR04 needs Echo level conversion for the 3.3 V GPIO, including on the bench. The schematic uses 1 kOhm / 1.8 kOhm. Verify the physical circuit matches [wiring.md](hardware/wiring.md). A bare motor must not draw its operating current from a GPIO.
 
-> **IoTrix 2.0 Semi-Final Quick Links:**
-> - [**Semi-Final Technical Progress Sheet**](./docs/IoTrix_SemiFinal_Technical_Progress_Sheet.md) *(Section 5 Rubric Template)*
-> - [**12-Minute Presentation & Technical Defense Guide**](./docs/IoTrix_SemiFinal_Defense_and_Demo_Guide.md) *(Pitch script, live demo & answers to judges' 8 defense questions)*
-> - [**Official Circuit Schematic Diagram**](./hardware/circuit_diagram.png) *(5V rail, 3.3V logic, $1\text{k}\Omega / 1.8\text{k}\Omega$ echo divider)*
+## Firmware and build
 
----
+`firmware/core-sensing/` is the current implementation. It attempts sensor sampling every 40 ms and telemetry every 250 ms. Echo measurement and BLE transmission contain blocking work, so there is no demonstrated hard response-time bound.
 
-## 3. Hardware Pin Mapping (Core Sensing — ESP32-C3 SuperMini)
-
-| Component | Function | ESP32-C3 Pin | Logic Level | Notes |
-|:---|:---|:---:|:---:|:---|
-| **HC-SR04 Ultrasonic** | Trigger Pulse (`TRIG`) | **GPIO 0** | 3.3V Output | 10 µs trigger pulse |
-| **HC-SR04 Ultrasonic** | Echo Pulse (`ECHO`) | **GPIO 1** | 3.3V / 5V | Direct connection on bench build (divider optional for prod) |
-| **MPU6050 (6-Axis IMU)**| I2C Data (`SDA`) | **GPIO 4** | 3.3V | Hardware I2C bus (GY-521 pin 4; VCC to 5V) |
-| **MPU6050 (6-Axis IMU)**| I2C Clock (`SCL`) | **GPIO 5** | 3.3V | Hardware I2C bus (GY-521 pin 3) |
-| **3-Pin Vibration Motor**| `IN / Signal` | **GPIO 6** | 3.3V PWM | Integrated driver module (VCC to 5V, LEDC 200 Hz) |
-| **Piezo Buzzer** | Audio Alarm (`+`) | **GPIO 7** | 3.3V | Universal driver for active & passive buzzers |
-| **Push Button (Optional)** | Alarm Reset / Emergency | **GPIO 3** | 3.3V Input | Optional / unpopulated on bench build (alarm auto-clears when upright) |
-| **Status LED** | Visual Indicator | **GPIO 8** | 3.3V | Onboard SuperMini blue LED (**Active LOW**) |
-
-*Full schematic, driver circuits, voltage divider calculations, and power distribution are documented in [`hardware/circuit_diagram.png`](./hardware/circuit_diagram.png) and [`hardware/wiring.md`](./hardware/wiring.md).*
-
----
-
-## 4. Getting Started for Contributors
-
-### Prerequisites
-- [Arduino IDE](https://www.arduino.cc/en/software) with the ESP32 board package installed, OR
-- [Arduino CLI](https://arduino.github.io/arduino-cli/), OR
-- [PlatformIO Core](https://platformio.org/install/cli) / PlatformIO VS Code extension.
-
-### Building & Flashing Phase 1 Firmware
-
-#### Method 1: Arduino CLI (Fastest & Verified)
-```bash
-# Compile with USB CDC On Boot enabled for ESP32-C3
+```sh
 arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
-
-# Flash directly to connected board
-arduino-cli upload -p /dev/cu.usbmodem* --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
 ```
 
-#### Method 2: PlatformIO
-```bash
-cd firmware/core-sensing
-pio run --target upload
+Select the board's actual serial port before uploading. Open USB serial at 115200 baud. For BLE, connect to `Intelligent-Cane` and subscribe to NUS TX UUID `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`. Verify the chosen phone app supports BLE GATT notifications.
+
+```sh
+g++ -std=c++11 -Wall -Wextra -pedantic tests/proximity_feedback_test.cpp -o /tmp/proximity_feedback_test
+/tmp/proximity_feedback_test
 ```
 
-#### Method 3: Arduino IDE
-1. Open `firmware/core-sensing/core-sensing.ino`.
-2. Select Board: **ESP32C3 Dev Module**.
-3. Select **Tools > USB CDC On Boot > Enabled**.
-4. Select **Tools > Flash Mode > DIO**.
-5. Select the USB modem serial port and click **Upload**.
+The host tests cover feedback logic, not physical sensor accuracy or electrical operation.
 
-### Live Telemetry Monitoring
-Open the serial console at 115200 baud:
-```bash
-pio device monitor -b 115200
-# or
-arduino-cli monitor -p /dev/cu.usbmodem* -c baudrate=115200
-```
+## Implemented and planned
 
-Sample telemetry stream:
-```text
-=======================================================
-  INTELLIGENT CANE — PHASE 1 CORE SENSING BOOTING
-  Neural-Nexus IoTrix 2.0 (Track A Embedded IoT)
-=======================================================
-[System] Initializing I2C bus (SDA=GPIO 4, SCL=GPIO 5)...
-[Motion] MPU6050 initialized successfully!
-[HC-SR04] Ultrasonic sensor ready (Trig: GPIO 0, Echo: GPIO 1)
-[Haptic] LEDC PWM initialized on GPIO 6 (200 Hz, 8-bit)
-[Buzzer] Configured on GPIO 7
-[SelfTest] Running motor & buzzer self-test...
-[SelfTest] Self-test complete! System ARMED.
-=======================================================
+**Implemented in active firmware:** ranging, PWM feedback, configurable buzzer drive, acceleration-based orientation/impact alarm, serial diagnostics, BLE NUS notifications and reset command handling.
 
-[CANE-C3] Dist: 142.3 cm | Tilt:  2.1° | Vib:   0% (PWM:   0) | Buzzer: MUTED   | Alert: CLEAR
-[CANE-C3] Dist:  68.5 cm | Tilt:  1.8° | Vib:  57% (PWM: 146) | Buzzer: MUTED   | Alert: CLEAR
-[CANE-C3] Dist:  18.2 cm | Tilt:  2.4° | Vib: 100% (PWM: 255) | Buzzer: BEEPING | Alert: CRITICAL HAZARD!
-```
+**Planned:** phone location and caregiver alert delivery, battery monitoring/runtime validation, final mechanical packaging, downward sensing and optional camera/AI narration. The camera, dashboard and voice-service directories currently contain plans. `firmware/archived-dual-tof/` and `simulation/wokwi/` are separate reference implementations and do not validate the current C3 build.
 
----
+## Cost
 
-## 5. Development Roadmap
-
-- [x] **Milestone 1**: Scaffolding, architecture design, and ADR documentation.
-- [x] **Milestone 2**: Phase 1 core sensing firmware (HC-SR04 ultrasonic ranging, MPU6050 IMU, 200 Hz LEDC haptic PWM, universal buzzer driver, startup self-test).
-- [x] **Milestone 3**: Physical bench testing & verification on live ESP32-C3 SuperMini hardware.
-- [ ] **Milestone 4 (Phase 2)**: Smartphone BLE geolocation bridging and caregiver web dashboard integration.
-- [ ] **Milestone 5 (Phase 3)**: ESP32-CAM board firmware and off-device AI voice service pipeline.
-
----
-
-## 6. Budget & BOM Summary
-
-Tracked target prototype budget: **LKR 20,000 – 35,000**
-- **Actual Phase 1 Bench Prototype Cost**: **Rs. 2,800 (LKR)** (achieved dramatic cost efficiency, far below the LKR 10,000 Phase 1 cap)
-- **Total Multi-phase Estimated Cost**: **~LKR 11,500 – 14,000** (achieves full system well below target ceiling)
-- See [`hardware/BOM.md`](./hardware/BOM.md) for individual component pricing and local supplier references.
+Listed base electronics total **LKR 2,800**, excluding required divider costs not yet entered, battery, cane structure, enclosure and phone. All listed optional/future rows bring the component estimate to **LKR 14,400** before unpriced items and service costs. See [BOM](hardware/BOM.md).

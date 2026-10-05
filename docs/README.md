@@ -1,13 +1,13 @@
-# Intelligent Cane Documentation
+# Semi-final documentation
 
-This folder contains project proposals, system architecture documentation, design decision logs, and testing records.
+- [Technical progress sheet](IoTrix_SemiFinal_Technical_Progress_Sheet.md)
+- [10-minute demonstration and Q&A](IoTrix_SemiFinal_Defense_and_Demo_Guide.md)
+- [Submission checklist](SUBMISSION_CHECKLIST.md)
+- [Current architecture](architecture.md)
+- [Progress report](PROGRESS_REPORT.md)
+- [Design decision history](decisions.md)
+- [Project proposal](proposals/Intelligent_Cane_Proposal.md)
+- [Software validation](test-logs/2026-10-05-software-validation.md)
+- [Unfilled physical test record](test-logs/physical-test-template.md)
 
-## Contents
-
-- [`IoTrix_SemiFinal_Technical_Progress_Sheet.md`](./IoTrix_SemiFinal_Technical_Progress_Sheet.md) — Official IoTrix 2.0 Semi-Final technical progress sheet (formatted strictly to Section 5 rubric).
-- [`IoTrix_SemiFinal_Defense_and_Demo_Guide.md`](./IoTrix_SemiFinal_Defense_and_Demo_Guide.md) — 12-minute presentation schedule, live demo script, and model answers to the 8 defense questions.
-- [`architecture.md`](./architecture.md) — Comprehensive block diagrams, data flow, and timing characteristics.
-- [`decisions.md`](./decisions.md) — Architectural Decision Records (ADRs) tracking pin assignments, sensor selection, library trade-offs, and fallback strategies.
-- [`PROGRESS_REPORT.md`](./PROGRESS_REPORT.md) — Executive one-page technical progress report for IoTrix 2.0.
-- `proposals/` — IoTrix Track A competition proposal drafts and pitch materials.
-- `test-logs/` — Field test data, sensor calibration benchmarks, and power consumption measurements.
+Exported deliverables are in `output/semifinal/`. The latest announcement specifies 4 minutes demo, 2 minutes progress and 4 minutes Q&A. Historical 12-minute guidance is superseded for today's session.

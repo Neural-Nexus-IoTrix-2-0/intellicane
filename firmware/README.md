@@ -1,20 +1,8 @@
-# Intelligent Cane Firmware
+# Firmware
 
-This directory contains embedded software running across the cane's microcontrollers.
+- `core-sensing/`: active ESP32-C3 SuperMini implementation. HC-SR04 ranging, MPU6050 acceleration-based tilt/impact alarm, motor PWM, buzzer, USB diagnostics and BLE NUS telemetry. Sensors are attempted every 40 ms and telemetry every 250 ms. Some operations block; timing remains to be measured.
+- `archived-dual-tof/`: historical reference implementation, not the active hardware configuration.
+- `gps-tracking/`: planned companion-phone geolocation design. No location firmware/app is implemented here.
+- `cam-module/`: planned camera subsystem. No working camera firmware is supplied here.
 
-## Structure
-
-- **`core-sensing/` (Phase 1 — Current Focus)**:
-  - ESP32-based safety-critical subsystem.
-  - Interfaces with forward ToF (VL53L1X), downward drop-off sensor (ultrasonic/VL53L0X), and 6-axis IMU (MPU6050).
-  - Handles real-time haptic vibration motor PWM feedback, buzzer alarm, and fall detection.
-  - Fully offline, deterministic, zero network dependencies.
-
-- **`gps-tracking/` (Phase 2 — BLE Geolocation & Telemetry)**:
-  - Smartphone BLE geolocation bridging (per ADR-007) and telemetry uplink (Wi-Fi/Cellular via companion app).
-  - Transmits location and health/emergency pings to family dashboard without requiring a standalone GPS module on the cane.
-
-- **`cam-module/` (Phase 3)**:
-  - Dedicated ESP32-CAM board sketch.
-  - Captures snapshot images on user trigger/button press and streams them via Wi-Fi to the `ai-voice-service`.
-  - Kept on an independent board to preserve GPIOs and flash memory bandwidth.
+Build and operating instructions are in `core-sensing/README.md`. Use Echo level conversion and an appropriate motor driver. Local sensing does not depend on internet access, but this is not a guarantee of safe navigation.

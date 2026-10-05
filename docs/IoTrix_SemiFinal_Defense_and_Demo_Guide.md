@@ -1,100 +1,63 @@
-# IoTrix 2.0 Semi-Final: 12-Minute Presentation & Technical Defense Guide
+# 10-minute evaluation: demonstration and speaking guide
 
-**Target Track:** Track A — Embedded IoT System  
-**Presentation Time Limit:** 12 minutes maximum  
-**Document Purpose:** Complete speaking guide, live demo checklist, and model answers for the judges' evaluation rubric.
+**Neural-Nexus: Dulnith, Thenul, Chamith, Suneth**
 
----
+The latest organizer announcement supersedes the PDF's recommended 12-minute session: **4 minutes demonstration, 2 minutes progress check, 4 minutes Q&A**. All four members must attend with cameras on. Slides are optional and receive no separate marks. Show the physical prototype prominently during the demonstration.
 
-## 1. Semi-Final 12-Minute Presentation Schedule
+## Suggested roles and timing
 
-| Time Window | Section | Judge SOP Step | Key Focus & Message |
-|:---|:---|:---|:---|
-| **0:00 – 1:30** (1.5 min) | **Problem & Target User** | Step 1: Problem Verification | Visually impaired navigation hazards (falls, drop-offs, head-height obstacles). The fatal flaws of existing solutions: $>\$500$ USD, heavy cloud dependence, rapid battery drain, audio masking. |
-| **1:30 – 3:30** (2.0 min) | **System Architecture & Design** | Step 2: Architecture Review | Decoupled 3-phase architecture. Subsystem 1: 100% offline safety reflex (ESP32-C3). Subsystem 2: BLE smartphone bridge for zero-added-cost GPS and caregiver telemetry (Rs. 2,800 bench cost). Subsystem 3: On-demand AI vision. |
-| **3:30 – 7:30** (4.0 min) | **Live Demonstration** | Step 3 & Step 5: PoC & Track Test | **Demo 1:** Proportional haptic ramping as hand approaches ($60 \rightarrow 10\text{ cm}$).<br>**Demo 2:** High-urgency buzzer warning at $<30\text{ cm}$.<br>**Demo 3:** Cane tilt past $65^\circ \rightarrow$ fall alarm triggers $\rightarrow$ restored upright $\rightarrow$ auto-clears.<br>**Demo 4:** Wireless BLE Serial Monitor on smartphone showing live telemetry & peer MAC address. |
-| **7:30 – 8:30** (1.0 min) | **Validation, Budget & Progress** | Evaluation: Working Progress | Rs. 2,800 actual expenditure vs LKR 20,000–35,000 budget ceiling. 100% host unit test coverage on proximity feedback math, monotonic PWM, and millis rollover. |
-| **8:30 – 12:00** (3.5 min) | **Technical Defense & Q&A** | Step 4: Technical Questions | Direct, authoritative engineering answers to judges' questions. |
+| Time | Speaker | Action |
+|---|---|---|
+| 0:00-0:20 | Dulnith | Introduce the user problem and show the five connected components. Slide 1. |
+| 0:20-2:30 | Thenul | Move a flat target through 80, 40, 20 and 10 cm. Show live distance and feel/hear the output. Slide 2 is a reference, not measured data. |
+| 2:30-4:00 | Chamith | Keep target far away, tilt the IMU gently, restore upright. Show local operation without a phone. If already verified, briefly show BLE NUS telemetry. Slide 3. |
+| 4:00-5:00 | Suneth | State connected hardware, implemented firmware, compile/test results and recorded base cost. Slide 4. |
+| 5:00-6:00 | Suneth | Explain limitations and the next work before the final. Slide 5. |
+| 6:00-10:00 | All | Q&A and judge-selected input changes. Slide 6; appendices only if useful. |
 
----
+Roles are a proposed speaking allocation, not a claim about who authored each subsystem. Rehearse handovers. One member controls screen sharing, another maintains the hardware close-up. Keep all four cameras on and avoid hiding the hardware behind the shared slides.
 
-## 2. Track A Scoring Rubric Strategy (10 Marks Breakdown)
+## Opening: Dulnith
 
-| Sub-Area | Max Marks | What Judges Look For | How We Win Full Marks |
-|:---|:---:|:---|:---|
-| **Hardware Integration** | **4** | Clean wiring, stable sensor/actuator operation, correct voltage domains, safe electrical design. | Show [`hardware/circuit_diagram.png`](../hardware/circuit_diagram.png). Point out the $1\text{k}\Omega / 1.8\text{k}\Omega$ echo voltage divider protecting the 3.3V GPIO, 5V regulated rail powering the vibration module and HC-SR04, common ground, and LEDC hardware PWM. |
-| **Firmware Operation** | **3** | Non-blocking architecture, responsive control logic, fault tolerance, robust data handling. | Explain non-blocking cooperative scheduling (`millis()` based: 50ms ultrasonic, 20ms IMU, 10ms actuator, 100ms telemetry). Point out zero `delay()` in loop, I2C clone IC register driver, and BLE Nordic UART service. |
-| **Physical Testing** | **3** | Ability to demonstrate real-time behavioral change under varied physical inputs. | Execute the 3 live test conditions on the real hardware in front of the judges (distance ramp, fall tilt, auto-recovery). |
+“We are Neural-Nexus. Our Intelligent Cane prototype explores affordable obstacle feedback for white-cane users. We have connected an ESP32-C3, ultrasonic sensor, inertial sensor, vibration motor and buzzer. We will demonstrate the local feedback loop and explain the progress still needed.”
 
----
+## Distance demo: Thenul
 
-## 3. Live Demonstration Script & Routine
+“Here is the distance reading. Above 60 centimetres, the obstacle feedback is off. As the target approaches, the motor duty and beep urgency increase. At 10 centimetres the commanded motor duty reaches its maximum. The chart shows the programmed mapping; these live readings show what the hardware is doing.”
 
-### Setup Before Entering the Room:
-1. Connect ESP32-C3 SuperMini via USB-C to laptop (powers the cane and opens Serial Monitor at 115200 baud).
-2. Open **nRF Connect** or **Serial Bluetooth Terminal** on your smartphone.
-3. Scan for BLE device named `Intelligent-Cane` and hit **Connect**.
-4. In the BLE app, open the TX Characteristic (`6E400003-B5A3-F393-E0A9-E50E24DCCA9E`) and enable **Notify**.
-5. Observe the live stream: `DIST: XX.Xcm | TILT: XX.Xdeg | FALL: 0 | MOTOR: XXX | BUZZ: X | BLE: CONN [...]`.
+Start far away, then show 40, 20 and 10 cm. Keep the target flat and sensor fixed. Explain any mismatch honestly. If the IMU alarm interferes, restore its calibrated upright orientation. Do not claim calibrated motor loudness or tactile strength.
 
-### Execution During the Pitch (3.5 Minutes):
-- **Test 1: Proportional Ranging (Distance > 60 cm):**  
-  *Speaker:* *"Notice the cane at rest. At distances greater than 60 cm, the vibration motor is completely silent to prevent sensory fatigue."*
-- **Test 2: Smooth Proportional Tactile Warning (60 cm to 10 cm):**  
-  *Speaker:* *"As an obstacle or wall approaches, watch the tactile motor. From 60 cm down to 10 cm, the ESP32-C3's 200 Hz LEDC PWM smoothly scales up vibration intensity, providing the user with natural spatial depth perception without noisy audio."*
-- **Test 3: Critical Hazard Alarm (< 30 cm):**  
-  *Speaker:* *"When an obstacle enters the critical 30 cm collision zone, the buzzer pulses urgently, alerting the user to stop immediately."*
-- **Test 4: Fall Detection & Automatic Recovery:**  
-  *Speaker:* *"If the cane is accidentally dropped or the user suffers a fall, the MPU6050 detects tilt exceeding 65 degrees. After a 1.5-second debounce, an emergency alarm sounds to alert bystanders. When the user or a passerby picks the cane back up (<30 degrees), the alarm automatically clears without requiring any manual button press."*
-- **Test 5: Wireless BLE Telemetry Mirror:**  
-  *Speaker:* *"Notice my smartphone screen. Over the Nordic UART Service on BLE 5.0, the cane streams real-time sensor metrics and the connected phone's MAC address with zero wires. This same link bridges into the phone's A-GPS for caregiver tracking in Phase 2."*
+## Tilt and local operation: Chamith
 
----
+“This sensor gives the controller acceleration data. Our current alarm triggers at 65 degrees of tilt or a 2.5 g acceleration magnitude. It clears below 30 degrees when the trigger is absent. This is a cane orientation or impact alarm. We still need to distinguish normal handling from a possible user fall. Local obstacle feedback does not need the phone.”
 
-## 4. Model Answers to the 8 Recommended Technical Defense Questions
+Tilt gently on a table and restore. Do not drop the hardware or simulate a human fall. If BLE was rehearsed, connect to `Intelligent-Cane`, subscribe to TX `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`, then disconnect and repeat one near/far test. Skip pairing attempts during the timed demo if BLE is unreliable. USB telemetry is the fallback.
 
-### Q1: Why did you select this architecture instead of a simpler alternative?
-> **Answer:**  
-> *"A simpler alternative would be a monolithic microcontroller trying to do obstacle sensing, GPS reading, cellular LTE communication, and AI processing all on one board. That approach has two fatal flaws: first, network latency or GPS acquisition delays block safety-critical reflexes; second, cellular modems and GPS modules inflate cost beyond LKR 15,000 and drain the battery in under 3 hours.  
-> Our architecture decouples safety-critical reflex from network services. The ESP32-C3 runs a dedicated, deterministic offline loop guaranteeing <50 ms tactile response. High-level connectivity (GPS, cellular, cloud dashboard) is offloaded via BLE to the user's smartphone, cutting hardware cost to just Rs. 2,800 while ensuring the cane remains 100% safe even with zero phone battery or internet."*
+## Progress check: Suneth
 
-### Q2: Why did you select this communication protocol (BLE Nordic UART Service)?
-> **Answer:**  
-> *"We evaluated Classic Bluetooth (SPP), Wi-Fi, and BLE. Wi-Fi draws over 120 mA continuously, which is prohibitive for a wearable battery. Classic Bluetooth SPP is unsupported natively on iOS without MFi licensing.  
-> BLE 5.0 gives us an ultra-low power profile (<15 mA active radio), sub-25 ms latency, native cross-platform support across both Android and iOS, and standard Nordic UART Service (NUS) GATT characteristics. This allows effortless wireless telemetry streaming and seamless bidirectional command transfer."*
+“Our basic hardware is connected. The active firmware implements proximity feedback, the cane alarm and BLE telemetry. The ESP32-C3 build passes, and our existing software tests pass for boundaries, invalid distances, feedback progression and buzzer timing. We still need recorded physical accuracy, latency, radio-range and battery tests. The listed base electronics cost is 2,800 rupees, excluding power, cane structure, enclosure and unpriced divider components.”
 
-### Q3: What happens if the network connection is lost?
-> **Answer:**  
-> *"Nothing changes in terms of user safety. The cane's core functionality—ultrasonic obstacle detection, proportional haptic feedback, MPU6050 fall detection, and emergency local audio-visual alarms—is 100% self-contained on the ESP32-C3.  
-> The network connection (via the smartphone) is only used for remote caregiver notifications and GPS tracking. If cell reception or Bluetooth drops, local safety reflexes continue uninterrupted."*
+“Before the final we will prioritize wiring and mounting, repeated sensor tests and clearer fault indication. We will then work toward one phone-to-caregiver alert path. Downward sensing and AI narration remain future work.”
 
-### Q4: What is the most important limitation of your current prototype/model?
-> **Answer:**  
-> *"The primary physical limitation is the ultrasonic beam reflection characteristic: sound waves can experience specular reflection or absorption against angled soft fabrics beyond 2 meters.  
-> The primary mechanical limitation of the Phase 1 bench build is the use of breadboard jumpers, which are susceptible to vibration. In the final build, we are migrating to a custom two-layer PCB and adding a complementary forward Time-of-Flight (ToF) laser sensor for reflective redundancy."*
+## Q&A answers
 
-### Q5: How did you validate that your system behaves as expected?
-> **Answer:**  
-> *"We implemented a three-tier validation strategy:  
-> 1. **Automated Host Unit Testing:** In `tests/proximity_feedback_test.cpp`, we tested edge cases including NaN, infinity, negative distances, monotonic PWM duty ramp, motor polarity inversion, and 32-bit `millis()` rollover resilience.  
-> 2. **Physical Sensor Calibration:** Bench-tested the HC-SR04 against physical distance marks from 2 cm to 250 cm with $\pm 1.5\text{ cm}$ accuracy.  
-> 3. **Digital Protractor Tilt Verification:** Calibrated MPU6050 pitch/roll thresholds under varying drop and pickup angles to eliminate false fall alarms."*
+- **Why this board?** It provides sensor interfaces, PWM and BLE in the chosen compact board. A distance-only build could use simpler hardware; BLE supports the extension path.
+- **Why BLE?** It carries small telemetry messages to a nearby compatible phone. Actual energy and latency need measurement. It is a GATT/NUS connection, not Bluetooth Classic serial.
+- **Where is the IoT integration?** BLE telemetry is in the firmware and can be demonstrated if verified. Phone location and remote caregiver delivery are planned; we do not claim a working cloud system.
+- **Network loss?** The local feedback calculation runs on the cane. Future remote alerts will depend on phone/network availability and will need delivery status.
+- **Does this detect a person falling?** It currently detects cane orientation/impact. Normal handling or dropping the cane can trigger it. Human-fall classification is unvalidated.
+- **What happens with no Echo?** Distance is unknown. Obstacle output turns off and telemetry reports NO ECHO. A distinct persistent-fault indication is planned.
+- **Why a voltage divider?** Standard HC-SR04 Echo is 5 V; the MCU GPIO is 3.3 V. The reference uses 1 kOhm and 1.8 kOhm, about 3.21 V output. Confirm the actual wiring before showing it.
+- **Response time?** Sensor scheduling is nominally 40 ms, but Echo acquisition and BLE sends block. We have not measured end-to-end latency and do not claim a guaranteed sub-50 ms response.
+- **How validated?** Show the software validation record and any physical measurements the team actually collected. Passing selected tests is not 100% system coverage.
+- **What is the main risk?** Limited sensor coverage and missed/ambiguous readings, plus confusing cane movement with a user emergency. Improve validation before expanding features.
 
-### Q6: Which component or subsystem is currently the highest technical risk?
-> **Answer:**  
-> *"In Phase 1, the highest risk was I2C bus lockup and clone MPU6050 IC compatibility, which we solved by writing a custom direct-register fallback driver with automatic bus recovery.  
-> Looking forward to Phase 2 and the final competition, the highest technical risk is BLE connection stability in high-interference 2.4 GHz public environments and background app execution on iOS/Android. We mitigate this through automatic BLE advertising restarts, local circular buffer caching, and persistent background service foreground notifications."*
+## Before joining
 
-### Q7: If you had one additional month, what would you improve first?
-> **Answer:**  
-> *"We would prioritize three engineering upgrades:  
-> 1. Fabricate a custom surface-mount PCB to eliminate all jumper wires.  
-> 2. Complete the 3D-printed enclosure featuring an ergonomic handle that channels motor vibrations directly into the user's palm while isolating the IMU from hand tremors.  
-> 3. Implement the native companion smartphone app that captures A-GPS coordinates upon receiving a BLE fall packet and automatically dispatches an SMS and dashboard alert to caregivers."*
+1. Verify Echo level conversion, common ground, driver modules and power with the board off before any rewiring.
+2. Confirm the flashed firmware matches the slide behavior. Fix sensor orientation and secure loose wires.
+3. Save real distance readings and a short demo video. Do not substitute expected outputs for observations.
+4. Open the deck, USB terminal and backup clip locally. Confirm conferencing audio carries the buzzer and the camera shows the target movement.
+5. All four members join with cameras on. Keep a visible timer and hand off at 4:00 and 6:00.
 
-### Q8: Which part of the system could fail in a real deployment, and how would you handle it?
-> **Answer:**  
-> *"In a real deployment, the three most likely failure modes are:  
-> 1. **Sensor Occlusion or Mud/Water Splash on Transducers:** Handled by a firmware health watchdog that flags out-of-range acoustic echoes and alerts the user with a distinct diagnostic vibration pulse.  
-> 2. **Low Battery Voltage:** Handled by ADC voltage divider monitoring on the 18650 cell, sounding a distinctive low-battery chirp when voltage drops below 3.3V.  
-> 3. **Mechanical Impact on Drop:** Handled by mounting the electronics in an internal shock-damped TPU sleeve inside the rigid 3D-printed cane enclosure."*
+If hardware fails live, state the fault and show the saved evidence. A backup clip supplements the required live demonstration. Do not claim it proves current live operation.

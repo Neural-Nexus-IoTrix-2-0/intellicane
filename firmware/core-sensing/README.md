@@ -1,6 +1,6 @@
 # Core Sensing Subsystem — ESP32-C3 SuperMini
 
-This project contains the production firmware for the safety-critical obstacle detection and haptic feedback layer of the Intelligent Cane, targeting the ultra-compact **ESP32-C3 SuperMini** microcontroller.
+This project contains the prototype firmware for the obstacle detection and haptic feedback layer of the Intelligent Cane, targeting the ultra-compact **ESP32-C3 SuperMini** microcontroller.
 
 ---
 
@@ -9,7 +9,7 @@ This project contains the production firmware for the safety-critical obstacle d
 | Peripheral | Function | ESP32-C3 Pin | Logic Level | Electrical Notes |
 |:---|:---|:---:|:---:|:---|
 | **HC-SR04** (Ultrasonic) | `TRIG` | **GPIO 0** | 3.3V Output | 10 µs trigger pulse |
-| | `ECHO` | **GPIO 1** | 3.3V / 5V | **Direct connection** (bench prototype) |
+| | `ECHO` | **GPIO 1** | 3.3V input | Required Echo divider / level conversion |
 | | `VCC` | **5V** | 5V Power | Powers ultrasonic transducer |
 | | `GND` | **GND** | 0V | Common ground |
 | **MPU6050** (6-Axis IMU) | `SDA` | **GPIO 4** | 3.3V | Hardware I2C Data line (GY-521 pin 4) |

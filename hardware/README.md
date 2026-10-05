@@ -1,11 +1,7 @@
-# Hardware Design & Documentation
+# Hardware documentation
 
-This directory contains electrical wiring schematics, Bills of Materials (BOM), power management design, and mechanical packaging/enclosure guidelines for the Intelligent Cane prototype.
+- [Circuit reference](circuit_diagram.png): C3 pin mapping, required Echo divider, module power and common ground. Confirm actual hardware matches it.
+- [Wiring](wiring.md): electrical requirements for the bench prototype.
+- [BOM](BOM.md): recorded component costs and future estimates.
 
-## Documents
-
-- [`circuit_diagram.png`](./circuit_diagram.png) — Official system circuit schematic diagram for ESP32-C3 SuperMini.
-- [`wiring.md`](./wiring.md) — Comprehensive pin mapping table, schematic description, voltage level conversion, and transistor/MOSFET driver circuits.
-- [`BOM.md`](./BOM.md) — Component list with component specs, suppliers, and estimated pricing in LKR (tracked within the LKR 20,000–35,000 budget).
-- `schematics/` — Circuit diagrams and KiCad/EasyEDA project files.
-- `enclosure/` — 3D printing STL files, cane mounting brackets, ergonomic handle clamp design, and sensor orientation jigs.
+The team reports the basic hardware is connected. An enclosure, PCB fabrication files, battery-runtime measurements and physical test records are not supplied here. Do not treat the schematic as evidence that the pictured protection circuitry has already been installed.
