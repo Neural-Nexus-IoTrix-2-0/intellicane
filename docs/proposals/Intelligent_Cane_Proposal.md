@@ -24,7 +24,7 @@ Downward sensing and on-demand camera/AI narration are possible later extensions
 
 The stack uses embedded C++, Arduino-ESP32 3.3.2, Adafruit MPU6050, Wire I2C at 100 kHz, 200 Hz LEDC motor PWM and BLE GATT/NUS. The chosen board provides the required interfaces and a BLE extension path. The ultrasonic sensor gives a simple ranging interface, but coverage and surface-dependent returns require testing.
 
-Standard HC-SR04 Echo requires conversion from 5 V to the C3's 3.3 V logic. The reference uses a 1 kOhm / 1.8 kOhm divider. I2C pull-ups must be to 3.3 V, and motor/buzzer current must use a suitable driver. The team must verify the actual assembly against the schematic.
+The bench prototype directly connects the HC-SR04 Echo pin to GPIO 1 without an external voltage divider. I2C pull-ups are to 3.3 V, and motor/buzzer current uses a suitable driver module.
 
 ## Progress and validation evidence
 
@@ -38,7 +38,7 @@ One sensor covers only its mounted field of view. No Echo is ambiguous and curre
 
 ## Budget and feasibility
 
-Listed base electronics total LKR 2,800: MCU 1,400, ultrasonic 450, IMU 600, motor module 250, buzzer/wiring 100. Required divider pricing has not been entered. Including all listed optional/future component rows totals LKR 14,400 before unpriced items, an existing phone and ongoing service costs. These are repository estimates, not independently checked supplier quotations. Battery runtime and product weight will be measured rather than assumed.
+Listed base electronics total LKR 2,800: MCU 1,400, ultrasonic 450, IMU 600, motor module 250, buzzer/wiring 100. Including all listed optional/future component rows totals LKR 14,400 before unpriced items, an existing phone and ongoing service costs. These are repository estimates, not independently checked supplier quotations. Battery runtime and product weight will be measured rather than assumed.
 
 ## Planned work before the final
 

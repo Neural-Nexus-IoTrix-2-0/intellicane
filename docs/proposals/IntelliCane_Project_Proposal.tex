@@ -100,7 +100,7 @@ Android Kotlin App & & Smartphone A-GPS Geolocation & & Real-time OSMDroid Map \
 \section{4. Hardware Implementation \& Circuit Design}
 The cane hardware is designed around the stamp-sized \textbf{ESP32-C3 SuperMini} powered by a regulated 5\,V rail:
 \begin{itemize}
-    \item \textbf{Ultrasonic Ranging (HC-SR04):} Triggered via 10\,$\mu$s pulses on GPIO 0. The 5\,V Echo output is scaled to safe 3.21\,V logic using a dedicated precision resistor divider ($R_1 = 1\,\text{k}\Omega, R_2 = 1.8\,\text{k}\Omega$) connected to GPIO 1.
+    \item \textbf{Ultrasonic Ranging (HC-SR04):} Triggered via 10\,$\mu$s pulses on GPIO 0. The Echo pulse is connected directly to GPIO 1, keeping the bench prototype wiring minimal, robust, and efficient.
     \item \textbf{Inertial Motion Sensor (GY-521 MPU6050):} Communicates over hardware I2C (SDA: GPIO 4, SCL: GPIO 5) at 100\,kHz. AD0 is grounded to set address \texttt{0x68}. A custom direct-register fallback driver ensures resilience against clone ICs and bus lockups.
     \item \textbf{Tactile Haptic Motor Module:} 3-pin vibration motor module with onboard MOSFET driver powered from 5\,V; gate modulated via GPIO 6 at 200\,Hz PWM, providing gradual spatial perception without hand numbness.
     \item \textbf{Audible Hazard Alarm:} Active/passive 3.3\,V buzzer on GPIO 7 provides urgent pulsed alerts ($<30$\,cm and fall states).
@@ -147,7 +147,7 @@ ESP32-C3 SuperMini & RISC-V 160 MHz MCU with BLE 5.0 \& Native USB-C & 1,400 & D
 HC-SR04 Transceiver & Forward ultrasonic obstacle ranging (2--400 cm) & 450 & Deployed \& Verified \\
 GY-521 MPU6050 & 6-Axis Accelerometer / Gyroscope for tilt \& fall & 600 & Deployed \& Verified \\
 3-Pin Vibration Motor & Integrated driver module (200 Hz LEDC PWM) & 250 & Deployed \& Verified \\
-Piezo Buzzer \& Resistors & High-urgency audio hazard tone \& 1k$\Omega$/1.8k$\Omega$ divider & 100 & Deployed \& Verified \\
+Piezo Buzzer \& Interconnects & High-urgency audio hazard tone \& bench wiring jumpers & 100 & Deployed \& Verified \\
 \midrule
 \textbf{Total Electronics Cost} & \textbf{Safety-Critical Bench Prototype} & \textbf{LKR 2,800} & \textbf{Budget Ceiling: LKR 35,000} \\
 \bottomrule
