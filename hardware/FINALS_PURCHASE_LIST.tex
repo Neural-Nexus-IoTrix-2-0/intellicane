@@ -1,0 +1,156 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.55in,top=0.55in,bottom=0.55in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{mathptmx}
+
+% Colors
+\definecolor{primary}{RGB}{24, 76, 120}     % Navy Blue
+\definecolor{secondary}{RGB}{41, 128, 185}  % Slate Blue
+\definecolor{darkgray}{RGB}{40, 40, 40}
+\definecolor{lightgray}{RGB}{245, 247, 250}
+\definecolor{warningred}{RGB}{180, 40, 40}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=secondary,
+    citecolor=primary
+}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries\color{primary}}{}{0em}{}[\titlerule]
+\titlespacing*{\section}{0pt}{6pt}{2pt}
+\titleformat{\subsection}{\normalsize\bfseries\color{secondary}}{}{0em}{}
+\titlespacing*{\subsection}{0pt}{3pt}{1pt}
+
+% Headers and Footers
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\footnotesize\textcolor{darkgray}{\textbf{IoTrix 2.0 Finals} $|$ Track A: Embedded IoT System}}
+\rhead{\footnotesize\textcolor{darkgray}{Team: \textbf{Neural-Nexus} $|$ IntelliCane}}
+\lfoot{\footnotesize\textcolor{darkgray}{\href{https://github.com/Neural-Nexus-IoTrix-2-0/intellicane}{github.com/Neural-Nexus-IoTrix-2-0/intellicane}}}
+\rfoot{\footnotesize\textcolor{darkgray}{Page \thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+\setlist{nosep, leftmargin=1.4em}
+
+\begin{document}
+
+% Title Header
+\begin{center}
+    {\LARGE\bfseries\color{primary} IntelliCane: Finals Purchase \& Power Engineering Guide}\\[3pt]
+    {\normalsize\bfseries Neural-Nexus $\cdot$ Track A: Embedded IoT System $\cdot$ IoTrix 2.0 Finals (17 October 2026)}\\[2pt]
+    {\small \textbf{Members:} Dulnith Liyanage, Thenul Sahansa, Chamith Chethana, Suneth Vidurasa}
+\end{center}
+\vspace{-0.6em}
+
+\section{1. Dual-MCU System Architecture (Safety Reflex + AI Vision)}
+To maintain the safety guarantees demonstrated in Phase 1 while adding real-time object identification for the finals, we employ a \textbf{two-microcontroller distributed architecture}:
+\begin{itemize}
+    \item \textbf{Primary Safety Controller (ESP32-C3 SuperMini):} Handles safety-critical, 100\% offline reflexes in a sub-50\,ms loop: forward ultrasonic ranging, handle vibration PWM (200\,Hz), silent fall/tilt detection via MPU6050, and Bluetooth Low Energy (BLE) telemetry to the smartphone. It never halts for network handshakes.
+    \item \textbf{Secondary Vision Controller (ESP32-CAM + OV2640):} Acts as an on-demand AI camera coprocessor. Triggered when obstacles enter the 1\,m warning boundary or upon user voice command. It captures JPEG snapshots and streams them via Wi-Fi to the companion Android phone for cloud/local object recognition and audio feedback.
+\end{itemize}
+
+\section{2. Power Distribution Architecture \& Brownout Prevention}
+\textbf{The Engineering Challenge:} The ESP32-CAM draws heavy transient current spikes of \textbf{450\,mA -- 600\,mA} during Wi-Fi transmission bursts and camera sensor readout. If powered from a weak 3.3\,V rail or an under-rated boost regulator, supply voltage sags below 4.5\,V, causing the onboard AMS1117-3.3 regulator to drop out and trigger an immediate MCU brownout panic reset.
+
+\vspace{0.3em}
+\noindent\textbf{Power Supply Pipeline \& Schematic Topology:}
+\begin{center}
+\small
+\fbox{\textbf{18650 Li-ion Cell}} (3.7\,V, 2600\,mAh) 
+$\longrightarrow$ \fbox{\textbf{TP4056 (DW01A)}} (Type-C Charger + Protection) 
+$\longrightarrow$ \fbox{\textbf{SPST Switch}} 
+$\longrightarrow$ \fbox{\textbf{MT3608 Boost}} (5.0\,V 2\,A) 
+$\longrightarrow$ \fbox{\textbf{1000\,$\mu$F Low-ESR Cap}} 
+$\longrightarrow$ \textbf{5\,V Common Rail}
+\end{center}
+
+\vspace{-0.4em}
+\begin{itemize}
+    \item \textbf{Common 5\,V Rail:} Both the ESP32-C3 (via \texttt{5V} pin) and ESP32-CAM (via \texttt{5V} pin) are powered from the boosted 5.0\,V line. Their internal LDOs step this down cleanly to 3.3\,V without mutual interference.
+    \item \textbf{1000\,$\mu$F Decoupling Reservoir:} A 1000\,$\mu$F / 16\,V Low-ESR electrolytic capacitor is soldered directly across the 5\,V and GND pins of the ESP32-CAM. This acts as an immediate local charge reservoir, buffering 500\,mA RF bursts and preventing voltage dips.
+    \item \textbf{Power Budget \& Runtime:} Continuous current is $\approx 400$\,mA @ 5\,V ($\approx 2.0$\,W). A single genuine 2600\,mAh cell provides \textbf{$>$4.0 hours} of continuous streaming and guidance. Putting the camera into Light Sleep between scans extends operation to \textbf{$>$8 hours}.
+\end{itemize}
+
+\section{3. Materials Checklist: Vision \& Power Subsystems}
+\small
+\begin{tabularx}{\textwidth}{rXlcrX}
+\toprule
+\textbf{\#} & \textbf{Component Description} & \textbf{Target Model / Specification} & \textbf{Qty} & \textbf{Est. LKR} & \textbf{Crucial Notes \& Sourcing} \\
+\midrule
+\multicolumn{6}{l}{\textbf{\color{primary}Category A: Vision Subsystem}} \\
+1 & ESP32-CAM Board & AI-Thinker ESP32-CAM + OV2640 2MP & 1 & 2,400 & Confirm 2MP camera ribbon cable is included in pack. \\
+2 & ESP32-CAM-MB Shield & CH340 Micro-USB Programmer Baseboard & 1 & 950 & \textbf{Crucial:} Snaps underneath; enables direct USB flashing. \\
+\midrule
+\multicolumn{6}{l}{\textbf{\color{primary}Category B: Battery \& Power Subsystem}} \\
+3 & 18650 Li-ion Battery & 3.7\,V 2500--3000\,mAh (Genuine high-drain) & 1 & 1,500 & Reputable brand (e.g. LG, Samsung, or tested cell). \\
+4 & 18650 Battery Holder & Single-cell holder with heavy solder leads & 1 & 200 & Secure physical cradle for the battery. \\
+5 & TP4056 Charger Module & Type-C with DW01A protection (\texttt{B+}, \texttt{B-}, \texttt{OUT+}, \texttt{OUT-}) & 1 & 300 & Must have 4 output pads for complete short-circuit safety. \\
+6 & DC-DC Boost Converter & MT3608 2\,A Adjustable Step-Up Module & 1 & 350 & Calibrate output trimpot to exactly 5.0\,V before connecting! \\
+7 & Decoupling Capacitor & 1000\,$\mu$F / 16\,V Low-ESR Electrolytic & 2 & 80 & Mandatory across camera 5\,V/GND to stop brownouts. \\
+8 & Noise Filter Capacitor & 100\,nF (0.1\,$\mu$F code 104) Ceramic & 2 & 30 & High-frequency RF switching noise suppression. \\
+9 & Master Power Switch & SPST Mini Rocker or Slide Switch ($>$1\,A) & 1 & 80 & Physical hardware power cut-off. \\
+\bottomrule
+\end{tabularx}
+
+\newpage
+\section{3 (Cont.). Materials Checklist: Prototyping, Wiring \& Mechanical Mounting}
+\small
+\begin{tabularx}{\textwidth}{rXlcrX}
+\toprule
+\textbf{\#} & \textbf{Component Description} & \textbf{Target Model / Specification} & \textbf{Qty} & \textbf{Est. LKR} & \textbf{Crucial Notes \& Sourcing} \\
+\midrule
+\multicolumn{6}{l}{\textbf{\color{primary}Category C: Circuit Prototyping \& Robust Wiring (No Breadboard)}} \\
+10 & Double-Sided Perfboard & FR4 Fiberglass Plated Through-Hole (5$\times$7\,cm) & 2 & 300 & Rigid mounting platform for modules and terminal blocks. \\
+11 & Female Pin Header Strips & 2.54\,mm pitch single-row (40-pin breakable) & 2 & 150 & Socket ESP32-C3 and ESP32-CAM to prevent heat damage. \\
+12 & Screw Terminal Blocks & 2-pin \& 3-pin (2.54\,mm or 5.08\,mm pitch) & 4 & 250 & Secure screw connections for battery, switch, and motor. \\
+13 & Flexible Silicone Wire & 26\,AWG or 28\,AWG Stranded (Red, Black, Blue) & 2\,m & 300 & Won't fatigue or snap during cane movement. \\
+14 & Heat Shrink Assortment & 2\,mm to 6\,mm diameter tubing & 1 pack & 200 & Clean electrical insulation over solder joints. \\
+\midrule
+\multicolumn{6}{l}{\textbf{\color{primary}Category D: Cane Chassis \& Temporary Fasteners (3D Enclosure Held Off)}} \\
+15 & Mobility White Cane & 4-section folding white cane or aluminum stick & 1 & 2,800 & Standard assistive mobility chassis (surgical pharmacy). \\
+16 & Cable Zip Ties & Small \& medium black nylon ties & 1 pack & 200 & Sturdy strapping for perfboard and battery along the shaft. \\
+17 & Heavy-Duty Foam Tape & 3M VHB or heavy-duty foam mounting tape & 1 roll & 300 & Vibration-damped mechanical bond between cane and board. \\
+\bottomrule
+\end{tabularx}
+
+\section{4. Estimated Budget Summary \& Sri Lankan Sourcing Guide}
+\begin{itemize}
+    \item \textbf{Vision Subsystem (ESP32-CAM + MB Daughterboard):} LKR 3,350
+    \item \textbf{Power Subsystem (18650 Battery + Holder + TP4056 + Boost + Caps + Switch):} LKR 2,540
+    \item \textbf{Prototyping \& Interconnects (Perfboard, Headers, Terminals, Silicone Wire, Heat Shrink):} LKR 1,200
+    \item \textbf{Cane Chassis \& Fasteners (Folding Cane + Zip Ties + Foam Tape):} LKR 3,300
+    \item \textbf{Total Estimated Budget: $\approx$ LKR 10,390} ($\approx$ LKR 2,600 per team member across Dulnith, Thenul, Chamith, and Suneth).
+\end{itemize}
+
+\vspace{0.3em}
+\noindent\textbf{Where to Purchase in Sri Lanka (Fast 24--48 Hour Availability):}
+\begin{itemize}
+    \item \textbf{TRONIC.LK (Nugegoda / Online):} In-stock ESP32-CAM + MB baseboards, TP4056 Type-C with protection, MT3608 modules, 18650 holders.
+    \item \textbf{LankaTronix (Maharagama / Online):} Perfboards, stranded silicone wires, terminal blocks, electrolytic capacitors, and slide switches.
+    \item \textbf{First Cross Street, Pettah (Walk-in):} Great for picking up 18650 cells, switches, heat shrink, zip ties, and fasteners immediately.
+    \item \textbf{Surgical / Medical Supply Stores (Maradana / Kandy / Colombo):} In-stock 4-section folding mobility white canes.
+\end{itemize}
+
+\section{5. Critical Assembly Rules \& Verification Steps}
+\begin{enumerate}
+    \item \textbf{Calibrate MT3608 Before Plugging Anything In:} MT3608 trimpots often ship set to 15--20\,V. Connect the 3.7\,V battery and turn the brass screw counter-clockwise while probing with a digital multimeter until the output reads \textbf{exactly 5.0\,V}. Only then solder it to the MCU rails.
+    \item \textbf{Power ESP32-CAM Through 5\,V Pin (Never 3.3\,V):} Always feed the regulated 5.0\,V rail into the \texttt{5V} pin. The onboard AMS1117 regulator requires at least 4.75\,V input to produce a clean 3.3\,V output for the camera sensor.
+    \item \textbf{Install 1000\,$\mu$F Capacitor at the Camera Header:} Solder the capacitor right between the \texttt{5V} and \texttt{GND} pins of the ESP32-CAM socket (observing polarity: negative stripe to GND).
+    \item \textbf{Keep Onboard Flash LED OFF in Firmware:} The bright white flash LED on the ESP32-CAM is tied to \texttt{GPIO 4}. Keep it \texttt{LOW} in setup (\texttt{pinMode(4, OUTPUT); digitalWrite(4, LOW);}) so it does not draw 150\,mA of parasitic heat.
+    \item \textbf{Common Ground:} Ensure the ESP32-C3 ground, ESP32-CAM ground, TP4056 ground, and boost converter ground are soldered into a unified star ground plane.
+\end{enumerate}
+
+\end{document}
