@@ -1,19 +1,64 @@
-# AI Voice Service (Phase 3)
+# IntelliCane AI Voice Service
 
-## Purpose
+The AI Voice Service provides multimodal scene understanding, obstacle identification, and neural Text-to-Speech (TTS) audio feedback for the IntelliCane smart white cane.
 
-The AI Voice Service is an off-device cloud or mobile companion service designed to provide natural language scene understanding and audio feedback to the user.
+---
 
-## Architecture
+## Capabilities
 
-The ESP32 microcontroller cannot locally execute modern Vision-Language Models (VLMs) or full neural Text-to-Speech (TTS) models. Therefore:
-1. **User Audio Input / Trigger**: User presses a query button or speaks a prompt (via smartphone companion app or Bluetooth headset mic).
-2. **Snapshot Uplink**: The ESP32-CAM pushes the latest captured frame.
-3. **Multimodal Inference**: Cloud/local server invokes a Vision-Language Model (e.g., Gemini 1.5 Flash / GPT-4o-mini) with context-specific prompts ("Describe immediate hazards, pedestrian signals, or text in view concisely").
-4. **Speech Synthesis**: Response is converted to natural speech via TTS (e.g., Google Cloud TTS, Edge TTS, or ElevenLabs) and streamed to the user's earpiece.
+- **Blind Navigation Scene Understanding**:
+  - Leverages Google Gemini Multimodal Vision API (`gemini-1.5-flash` or `gemini-2.0-flash`).
+  - Prioritizes critical safety information:
+    1. **Urgent Hazards**: Stairs/steps down, curbs, drop-offs, low-hanging obstacles, moving vehicles or people, tripping hazards.
+    2. **Walkable Path**: Clear navigable directions formatted as clock-face orientations (e.g., 12 o'clock, 10 o'clock, 2 o'clock).
+    3. **Surrounding Objects**: Object identification with estimated distances and hazard ratings.
+    4. **Text & Signage**: Room numbers, doorway signs, exit indicators, transit symbols.
+- **Audio Feedback / TTS**:
+  - Offline local macOS `say` voice synthesis (sub-second latency, natural voice).
+  - Neural TTS fallback via `edge-tts` / `gTTS`.
+  - Speaks audio directly on host speakers or provides downloadable audio files.
+- **REST Endpoints & Interactive Dashboard**:
+  - `POST /analyze/image`: Upload raw image or multipart frame.
+  - `GET /analyze/cane?cane_url=http://.../capture`: Pulls latest snapshot from the ESP32-CAM and performs live analysis with audio readout.
+  - `GET /`: Interactive web test interface.
 
-## Planned Stack
+---
 
-- **Runtime**: Python (FastAPI) or Node.js.
-- **Vision-Language Model**: Google Gemini API / OpenAI API.
-- **Speech Processing**: Whisper API (STT) + Edge-TTS / gTTS.
+## Quick Start
+
+### 1. Setup Environment
+```sh
+cd ai-voice-service
+pip install -r requirements.txt
+```
+
+### 2. Run the Service
+```sh
+# Start FastAPI server on port 8000
+python -m ai_voice_service.cli serve --port 8000
+```
+Open [http://localhost:8000](http://localhost:8000) in your browser to interact with the dashboard.
+
+### 3. Command Line Testing
+
+#### Query ESP32-CAM directly:
+```sh
+python -m ai_voice_service.cli cane --url http://192.168.4.1/capture
+```
+
+#### Run offline demo (with audio readout):
+```sh
+python -m ai_voice_service.cli demo
+```
+
+#### Analyze a local image:
+```sh
+python -m ai_voice_service.cli image /path/to/test.jpg --key YOUR_GEMINI_API_KEY
+```
+
+---
+
+## Running Unit Tests
+```sh
+pytest tests/
+```
