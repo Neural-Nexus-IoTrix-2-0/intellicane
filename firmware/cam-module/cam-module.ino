@@ -3,6 +3,7 @@
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include "esp_camera.h"
 #include "camera_pins.h"
 #include "config.h"
@@ -180,6 +181,9 @@ void setupWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("[WIFI] Connected! IP Address: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("[WIFI] RSSI: %d dBm\n", WiFi.RSSI());
+    if (MDNS.begin("intellicane")) {
+      Serial.println("[MDNS] Hostname registered: http://intellicane.local");
+    }
   } else {
     Serial.println("[WIFI] Primary Wi-Fi connection timed out.");
     Serial.printf("[WIFI] Starting fallback SoftAP hotspot '%s'...\n", SOFTAP_SSID);
@@ -187,6 +191,9 @@ void setupWiFi() {
     WiFi.softAP(SOFTAP_SSID, SOFTAP_PASS);
     Serial.printf("[WIFI] SoftAP active! IP Address: %s\n", WiFi.softAPIP().toString().c_str());
     Serial.printf("[WIFI] Connect to hotspot '%s' (password: '%s')\n", SOFTAP_SSID, SOFTAP_PASS);
+    if (MDNS.begin("intellicane")) {
+      Serial.println("[MDNS] Hostname registered: http://intellicane.local");
+    }
   }
 }
 
