@@ -37,3 +37,14 @@ yarn-error.log*
 
 # OS metadata
 Thumbs.db
+
+# Secrets & Credentials
+firmware/cam-module/config.h
+firmware/**/config.local.h
+firmware/**/secrets.h
+ai-voice-service/.env
+*.env
+*.env.local
+*.env.*.local
+*credentials.json
+google-services.json

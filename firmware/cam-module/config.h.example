@@ -1,7 +1,13 @@
 #pragma once
 
 // ============================================================================
-// IntelliCane ESP32-CAM Configuration
+// IntelliCane ESP32-CAM Configuration Template
+// ============================================================================
+// INSTRUCTIONS:
+// 1. Copy this file to "config.h":
+//    cp firmware/cam-module/config.h.example firmware/cam-module/config.h
+// 2. Put your real credentials in "config.h".
+// 3. "config.h" is ignored by git and will never be committed.
 // ============================================================================
 
 // 1. Wi-Fi Settings
@@ -17,8 +23,8 @@
 
 // 2. Google Gemini Vision API Settings (Direct On-Device Cloud Inference)
 // Obtain a free Gemini API key from https://aistudio.google.com/
-// If left empty or as placeholder, the system can route through the local
-// AI Voice Service or operate in benchmark test mode.
+// If left empty or as placeholder, the system runs in bench assistance mode
+// or routes through the local AI Voice Service.
 #define GEMINI_API_KEY      "YOUR_GEMINI_API_KEY"
 #define GEMINI_MODEL        "gemini-1.5-flash"
 

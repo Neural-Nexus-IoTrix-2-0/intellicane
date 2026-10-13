@@ -6,7 +6,14 @@
 #include <ESPmDNS.h>
 #include "esp_camera.h"
 #include "camera_pins.h"
-#include "config.h"
+
+#if __has_include("config.h")
+  #include "config.h"
+#elif __has_include("config.h.example")
+  #include "config.h.example"
+#else
+  #error "Configuration file missing! Please copy config.h.example to config.h"
+#endif
 
 // ============================================================================
 // Global State & Web Server
