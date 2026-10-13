@@ -322,27 +322,33 @@ String performSceneDescription() {
   JsonDocument parsed;
   DeserializationError err = deserializeJson(parsed, resultJson);
   if (!err) {
-    if (parsed["spoken_summary"].is<const char*>()) {
-      lastSpokenSummary = parsed["spoken_summary"].as<String>();
-    }
-    if (parsed["walkable_path"].is<const char*>()) {
-      lastWalkablePath = parsed["walkable_path"].as<String>();
-    }
-    if (parsed["text_and_signs"].is<const char*>()) {
-      lastTextSigns = parsed["text_and_signs"].as<String>();
-    }
-    if (parsed["urgent_hazards"].is<JsonArray>()) {
-      String hList = "";
-      for (JsonVariant v : parsed["urgent_hazards"].as<JsonArray>()) {
-        if (hList.length() > 0) hList += ", ";
-        hList += v.as<String>();
+    if (parsed["status"].is<const char*>() && parsed["status"].as<String>() == "error") {
+      lastSpokenSummary = parsed["message"].is<const char*>() ? ("Error: " + parsed["message"].as<String>()) : "Scene analysis failed.";
+      lastUrgentHazards = "API Error";
+      lastWalkablePath = "Caution advised";
+    } else {
+      if (parsed["spoken_summary"].is<const char*>()) {
+        lastSpokenSummary = parsed["spoken_summary"].as<String>();
       }
-      lastUrgentHazards = (hList.length() > 0) ? hList : "None";
-    }
-    if (parsed["detected_objects"].is<JsonArray>()) {
-      String objStr;
-      serializeJson(parsed["detected_objects"], objStr);
-      lastObjectsJson = objStr;
+      if (parsed["walkable_path"].is<const char*>()) {
+        lastWalkablePath = parsed["walkable_path"].as<String>();
+      }
+      if (parsed["text_and_signs"].is<const char*>()) {
+        lastTextSigns = parsed["text_and_signs"].as<String>();
+      }
+      if (parsed["urgent_hazards"].is<JsonArray>()) {
+        String hList = "";
+        for (JsonVariant v : parsed["urgent_hazards"].as<JsonArray>()) {
+          if (hList.length() > 0) hList += ", ";
+          hList += v.as<String>();
+        }
+        lastUrgentHazards = (hList.length() > 0) ? hList : "None";
+      }
+      if (parsed["detected_objects"].is<JsonArray>()) {
+        String objStr;
+        serializeJson(parsed["detected_objects"], objStr);
+        lastObjectsJson = objStr;
+      }
     }
   }
 
@@ -451,33 +457,120 @@ String callGeminiVision(camera_fb_t *fb) {
   streamBase64(client, fb->buf, fb->len);
   client.print(jsonSuffix);
 
-  // Read Response
+  // Read HTTP status line
+  String statusLine = client.readStringUntil('\n');
+  int statusCode = 0;
+  if (statusLine.startsWith("HTTP/1.")) {
+    statusCode = statusLine.substring(9, 12).toInt();
+    Serial.printf("[GEMINI HTTP] Status: %d\n", statusCode);
+  }
+
+  // Read HTTP headers
+  bool isChunked = false;
+  int contentLength = -1;
   while (client.connected()) {
     String line = client.readStringUntil('\n');
-    if (line == "\r") {
+    if (line == "\r" || line.length() == 0) {
       break; // End of HTTP headers
+    }
+    String lineLower = line;
+    lineLower.toLowerCase();
+    if (lineLower.startsWith("transfer-encoding:") && lineLower.indexOf("chunked") >= 0) {
+      isChunked = true;
+    }
+    if (lineLower.startsWith("content-length:")) {
+      contentLength = lineLower.substring(15).toInt();
     }
   }
 
   String responseBody = "";
-  while (client.available()) {
-    responseBody += client.readString();
+  if (isChunked) {
+    // Decode HTTP chunked transfer encoding directly
+    while (client.connected() || client.available()) {
+      String chunkHex = client.readStringUntil('\n');
+      chunkHex.trim();
+      if (chunkHex.length() == 0) continue;
+      long chunkSize = strtol(chunkHex.c_str(), NULL, 16);
+      if (chunkSize <= 0) break; // 0-size chunk marks end of stream
+
+      while (chunkSize > 0 && (client.connected() || client.available())) {
+        if (client.available()) {
+          char c = client.read();
+          responseBody += c;
+          chunkSize--;
+        } else {
+          delay(1);
+        }
+      }
+      client.readStringUntil('\n'); // Consume trailing \r\n
+    }
+  } else if (contentLength > 0) {
+    // Read exact Content-Length bytes
+    while (contentLength > 0 && (client.connected() || client.available())) {
+      if (client.available()) {
+        char c = client.read();
+        responseBody += c;
+        contentLength--;
+      } else {
+        delay(1);
+      }
+    }
+  } else {
+    // Fallback: read all available bytes
+    while (client.connected() || client.available()) {
+      if (client.available()) {
+        responseBody += client.readString();
+      } else {
+        delay(10);
+      }
+    }
   }
   client.stop();
+
+  // If HTTP error (e.g. 404, 429, 500, 503)
+  if (statusCode != 200 && statusCode != 0) {
+    Serial.printf("[GEMINI API ERROR] HTTP %d: %s\n", statusCode, responseBody.substring(0, 200).c_str());
+    JsonDocument errDoc;
+    errDoc["status"] = "error";
+    errDoc["message"] = "Gemini API HTTP " + String(statusCode);
+    String errStr;
+    serializeJson(errDoc, errStr);
+    return errStr;
+  }
+
+  // Locate outer JSON { ... } to safely skip any stray transport bytes
+  int jsonStart = responseBody.indexOf('{');
+  int jsonEnd = responseBody.lastIndexOf('}');
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    responseBody = responseBody.substring(jsonStart, jsonEnd + 1);
+  }
 
   // Parse Gemini response
   JsonDocument geminiDoc;
   DeserializationError err = deserializeJson(geminiDoc, responseBody);
   if (err) {
     Serial.printf("[GEMINI PARSE ERROR] %s\n", err.c_str());
+    Serial.printf("[GEMINI RAW BODY] %s\n", responseBody.substring(0, 300).c_str());
     return "{\"status\":\"error\",\"message\":\"Failed to parse Gemini response\"}";
+  }
+
+  // Check if error response object
+  if (geminiDoc["error"].is<JsonObject>()) {
+    const char* errMsg = geminiDoc["error"]["message"];
+    Serial.printf("[GEMINI ERROR] %s\n", errMsg ? errMsg : "Unknown error");
+    JsonDocument errDoc;
+    errDoc["status"] = "error";
+    errDoc["message"] = errMsg ? errMsg : "API error";
+    String errStr;
+    serializeJson(errDoc, errStr);
+    return errStr;
   }
 
   // Extract generated text
   const char* rawText = geminiDoc["candidates"][0]["content"]["parts"][0]["text"];
   if (!rawText) {
     Serial.println("[GEMINI ERROR] No content parts returned in response.");
-    return responseBody;
+    return "{\"status\":\"error\",\"message\":\"Empty response from Gemini\"}";
   }
 
   // Clean markdown json fences if present: ```json ... ```
@@ -492,6 +585,13 @@ String callGeminiVision(camera_fb_t *fb) {
     cleaned = cleaned.substring(0, cleaned.length() - 3);
   }
   cleaned.trim();
+
+  // Find inner JSON bounds
+  int innerStart = cleaned.indexOf('{');
+  int innerEnd = cleaned.lastIndexOf('}');
+  if (innerStart >= 0 && innerEnd > innerStart) {
+    cleaned = cleaned.substring(innerStart, innerEnd + 1);
+  }
 
   return cleaned;
 }
@@ -930,6 +1030,17 @@ void handleRoot() {
         const response = await fetch('/describe', { method: 'POST' });
         const data = await response.json();
 
+        if (data.status === 'error') {
+          const errText = data.message || "Failed to analyze surroundings.";
+          statusLine.innerText = 'Error: ' + errText;
+          speechBox.innerText = '⚠️ ' + errText;
+          speakText(errText);
+          const hazardBanner = document.getElementById('hazard-banner');
+          hazardBanner.className = 'hazard-box hazard-alert';
+          hazardBanner.innerText = '⚠️ API Error: ' + errText;
+          return;
+        }
+
         currentSpeech = data.spoken_summary || 'Surroundings analyzed.';
         speechBox.innerText = currentSpeech;
         speakText(currentSpeech);
@@ -949,7 +1060,8 @@ void handleRoot() {
         statusLine.innerText = 'Analysis complete (' + (data.latency_ms || 0) + ' ms)';
       } catch (err) {
         statusLine.innerText = 'Error: ' + err.message;
-        speechBox.innerText = 'Failed to analyze scene. Please check connection.';
+        speechBox.innerText = 'Failed to analyze scene: ' + err.message;
+        speakText('Failed to analyze scene.');
       }
     }
 
