@@ -4,6 +4,7 @@
 #include <WebServer.h>
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
+#include <esp_http_server.h>
 #include "esp_camera.h"
 #include "camera_pins.h"
 
@@ -19,6 +20,8 @@
 // Global State & Web Server
 // ============================================================================
 WebServer server(WEB_SERVER_PORT);
+httpd_handle_t stream_httpd = NULL;
+
 bool cameraInitialized = false;
 bool flashState = false;
 unsigned long lastTriggerTime = 0;
@@ -33,6 +36,12 @@ String lastTextSigns = "None";
 unsigned long lastAnalysisTime = 0;
 int lastLatencyMs = 0;
 
+// MJPEG Stream Boundary Definition
+#define PART_BOUNDARY "123456789000000000000987654321"
+static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+
 // Base64 lookup table
 static const char B64_TABLE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -42,6 +51,7 @@ static const char B64_TABLE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstu
 void setupCamera();
 void setupWiFi();
 void setupWebServer();
+void startCameraStreamServer();
 void setStatusLed(bool on);
 void setFlashLed(bool on);
 camera_fb_t* captureFrame();
@@ -51,12 +61,13 @@ void streamBase64(WiFiClientSecure &client, const uint8_t *data, size_t length);
 void handleSerialCommands();
 void checkHardwareTrigger();
 
-// Web Server Handlers
+// Web Server Handlers (Port 80)
 void handleRoot();
 void handleCapture();
 void handleDescribe();
 void handleFlashToggle();
 void handleStatus();
+void handleResolution();
 
 // ============================================================================
 // Setup
@@ -84,18 +95,17 @@ void setup() {
   // Initialize Wi-Fi
   setupWiFi();
 
-  // Initialize Web Server
+  // Initialize Web Control Server (Port 80)
   setupWebServer();
+
+  // Initialize High-Speed MJPEG Video Stream (Port 81)
+  startCameraStreamServer();
 
   setStatusLed(false); // Turn off status LED (ready)
   Serial.println("\n[READY] System operational.");
-  Serial.println("Commands available via Serial:");
-  Serial.println("  DESCRIBE   -> Capture frame and run AI scene description");
-  Serial.println("  CAPTURE    -> Capture single photo snapshot");
-  Serial.println("  FLASH ON   -> Turn flashlight LED on");
-  Serial.println("  FLASH OFF  -> Turn flashlight LED off");
-  Serial.println("  STATUS     -> Print system diagnostics");
-  Serial.println("  HELP       -> Print this command menu");
+  Serial.println("Stream URL:   http://<ip>:81/stream");
+  Serial.println("Dashboard:    http://<ip>/ or http://intellicane.local");
+  Serial.println("Commands: DESCRIBE, CAPTURE, FLASH ON, FLASH OFF, STATUS, HELP");
   Serial.println("================================================\n");
 }
 
@@ -106,7 +116,7 @@ void loop() {
   server.handleClient();
   handleSerialCommands();
   checkHardwareTrigger();
-  delay(5);
+  yield();
 }
 
 // ============================================================================
@@ -132,13 +142,13 @@ void setupCamera() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn     = PWDN_GPIO_NUM;
   config.pin_reset    = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
+  config.xclk_freq_hz = 20000000; // 20 MHz clean pixel clock
   config.pixel_format = PIXFORMAT_JPEG;
   config.grab_mode    = CAMERA_GRAB_LATEST;
 
   if (psramFound()) {
-    Serial.println("[CAM] PSRAM detected (4MB). Configuring SVGA 800x600 mode.");
-    config.frame_size   = FRAMESIZE_VGA; // 640x480 is fast, highly accurate for Gemini
+    Serial.println("[CAM] PSRAM detected (4MB). Configuring VGA mode.");
+    config.frame_size   = FRAMESIZE_VGA; // 640x480 - smooth 15-20 FPS stream
     config.jpeg_quality = 12;
     config.fb_count     = 2;
     config.fb_location  = CAMERA_FB_IN_PSRAM;
@@ -160,9 +170,9 @@ void setupCamera() {
 
   sensor_t *s = esp_camera_sensor_get();
   if (s != NULL) {
-    s->set_vflip(s, 1);       // Adjust for typical cane mount orientation
+    s->set_vflip(s, 1);       // Cane mount upright orientation
     s->set_hmirror(s, 0);
-    s->set_brightness(s, 1);  // Slight boost for indoor clarity
+    s->set_brightness(s, 1);  // Indoor clarity boost
     s->set_contrast(s, 1);
   }
 
@@ -219,7 +229,7 @@ void setFlashLed(bool on) {
 }
 
 // ============================================================================
-// Frame Capture Helper
+// Ultra-Fast Frame Capture Helper
 // ============================================================================
 camera_fb_t* captureFrame() {
   if (!cameraInitialized) {
@@ -227,18 +237,13 @@ camera_fb_t* captureFrame() {
     return nullptr;
   }
 
-  // Clear previous frame buffer if double-buffered
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (fb) {
-    esp_camera_fb_return(fb);
-  }
-
   if (ENABLE_FLASH_ON_CAPTURE) {
     setFlashLed(true);
-    delay(60); // Allow sensor auto-exposure to adapt
+    delay(30);
   }
 
-  fb = esp_camera_fb_get();
+  // With CAMERA_GRAB_LATEST and fb_count=2, this returns the freshest frame instantly (<15ms)
+  camera_fb_t *fb = esp_camera_fb_get();
 
   if (ENABLE_FLASH_ON_CAPTURE) {
     setFlashLed(false);
@@ -280,31 +285,30 @@ String performSceneDescription() {
   } else {
     // Bench test / fallback mode
     Serial.println("[AI VISION] Notice: GEMINI_API_KEY not configured. Running bench assistance model.");
-    
-    // Simulate real-time blind assistance output
+
     JsonDocument doc;
     doc["status"] = "success";
     doc["mode"] = "bench_simulation";
     doc["spoken_summary"] = "Path straight ahead at 12 o'clock is clear for 2 meters. A low obstacle is detected at 2 o'clock on your right. Step forward with caution.";
-    
+
     JsonArray hazards = doc["urgent_hazards"].to<JsonArray>();
     hazards.add("Low stool/obstacle at 2 o'clock (1.2m away)");
-    
+
     doc["walkable_path"] = "Clear corridor straight ahead at 12 o'clock.";
-    
+
     JsonArray objects = doc["detected_objects"].to<JsonArray>();
     JsonObject obj1 = objects.add<JsonObject>();
     obj1["name"] = "doorway";
     obj1["position"] = "12 o'clock";
     obj1["distance"] = "2.5m";
     obj1["hazard_level"] = "none";
-    
+
     JsonObject obj2 = objects.add<JsonObject>();
     obj2["name"] = "chair/stool";
     obj2["position"] = "2 o'clock";
     obj2["distance"] = "1.2m";
     obj2["hazard_level"] = "medium";
-    
+
     doc["text_and_signs"] = "Room doorway visible straight ahead";
     doc["frame_bytes"] = fb->len;
     doc["latency_ms"] = millis() - startTime;
@@ -406,7 +410,7 @@ String callGeminiVision(camera_fb_t *fb) {
   }
 
   // System instruction for blind assistance
-  const char* promptText = 
+  const char* promptText =
     "You are the AI vision assistant for IntelliCane, an intelligent white cane assisting a blind person. "
     "Analyze this camera frame captured from the cane. "
     "Identify urgent hazards (drop-offs, steps, curbs, low branches, approaching objects), "
@@ -448,13 +452,11 @@ String callGeminiVision(camera_fb_t *fb) {
   client.print(jsonSuffix);
 
   // Read Response
-  String responseHeaders = "";
   while (client.connected()) {
     String line = client.readStringUntil('\n');
     if (line == "\r") {
       break; // End of HTTP headers
     }
-    responseHeaders += line + "\n";
   }
 
   String responseBody = "";
@@ -495,7 +497,66 @@ String callGeminiVision(camera_fb_t *fb) {
 }
 
 // ============================================================================
-// Web Server Endpoints
+// High-Speed Real-Time MJPEG Stream Server (Port 81)
+// ============================================================================
+esp_err_t stream_handler(httpd_req_t *req) {
+  camera_fb_t *fb = NULL;
+  esp_err_t res = ESP_OK;
+  char part_buf[64];
+
+  res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
+  if (res != ESP_OK) return res;
+
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "X-Framerate", "25");
+
+  while (true) {
+    fb = esp_camera_fb_get();
+    if (!fb) {
+      res = ESP_FAIL;
+      break;
+    }
+
+    res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+    if (res == ESP_OK) {
+      size_t hlen = snprintf(part_buf, 64, _STREAM_PART, fb->len);
+      res = httpd_resp_send_chunk(req, part_buf, hlen);
+    }
+    if (res == ESP_OK) {
+      res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
+    }
+    esp_camera_fb_return(fb);
+    fb = NULL;
+
+    if (res != ESP_OK) {
+      break;
+    }
+  }
+  return res;
+}
+
+void startCameraStreamServer() {
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 81;
+  config.ctrl_port = 32769;
+
+  httpd_uri_t stream_uri = {
+    .uri       = "/stream",
+    .method    = HTTP_GET,
+    .handler   = stream_handler,
+    .user_ctx  = NULL
+  };
+
+  if (httpd_start(&stream_httpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(stream_httpd, &stream_uri);
+    Serial.println("[STREAM] Real-time 20+ FPS MJPEG stream active at port 81 (/stream)");
+  } else {
+    Serial.println("[STREAM ERROR] Failed to start stream server on port 81.");
+  }
+}
+
+// ============================================================================
+// Web Server Endpoints (Port 80)
 // ============================================================================
 void setupWebServer() {
   server.on("/", HTTP_GET, handleRoot);
@@ -504,10 +565,11 @@ void setupWebServer() {
   server.on("/describe", HTTP_GET, handleDescribe);
   server.on("/describe", HTTP_POST, handleDescribe);
   server.on("/flash", HTTP_GET, handleFlashToggle);
+  server.on("/resolution", HTTP_GET, handleResolution);
   server.on("/status", HTTP_GET, handleStatus);
 
   server.begin();
-  Serial.println("[HTTP] Web server running on port 80.");
+  Serial.println("[HTTP] Web control server running on port 80.");
 }
 
 void handleRoot() {
@@ -519,9 +581,9 @@ void handleRoot() {
   <title>IntelliCane AI Vision</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --card: #1e293b;
-      --border: #334155;
+      --bg: #0b1120;
+      --card: #151f32;
+      --border: #22324e;
       --text: #f8fafc;
       --text-muted: #94a3b8;
       --primary: #38bdf8;
@@ -541,34 +603,84 @@ void handleRoot() {
       align-items: center;
     }
     .container {
-      max-width: 640px;
+      max-width: 680px;
       width: 100%;
     }
     header {
       text-align: center;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
     h1 {
       margin: 0 0 6px 0;
-      font-size: 1.6rem;
+      font-size: 1.65rem;
       color: var(--primary);
     }
     .badge {
       display: inline-block;
-      padding: 4px 10px;
+      padding: 4px 12px;
       font-size: 0.75rem;
-      font-weight: bold;
+      font-weight: 700;
       border-radius: 999px;
       background: #0369a1;
       color: white;
+      letter-spacing: 0.05em;
     }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 16px;
       margin-bottom: 16px;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .viewfinder-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 0.85rem;
+    }
+    .live-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid var(--success);
+      color: #6ee7b7;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.75rem;
+    }
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      background: #10b981;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.2); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .res-select {
+      background: #0b1120;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .camera-frame {
+      width: 100%;
+      height: 320px;
+      object-fit: contain;
+      background: #000;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      display: block;
     }
     .btn-group {
       display: grid;
@@ -581,7 +693,7 @@ void handleRoot() {
       font-size: 1rem;
       font-weight: 600;
       border: none;
-      border-radius: 8px;
+      border-radius: 10px;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -591,30 +703,23 @@ void handleRoot() {
     }
     .btn-primary {
       background: var(--primary);
-      color: #0f172a;
+      color: #0b1120;
       grid-column: span 2;
+      font-size: 1.05rem;
     }
     .btn-primary:hover { background: var(--primary-hover); }
     .btn-secondary {
-      background: var(--border);
+      background: #1e293b;
       color: var(--text);
-    }
-    .btn-secondary:hover { background: #475569; }
-    .camera-frame {
-      width: 100%;
-      height: 280px;
-      object-fit: cover;
-      background: #000;
-      border-radius: 8px;
       border: 1px solid var(--border);
-      display: block;
     }
+    .btn-secondary:hover { background: #334155; }
     .section-title {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
       color: var(--text-muted);
-      margin-bottom: 8px;
+      margin-bottom: 10px;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -626,15 +731,15 @@ void handleRoot() {
       color: #f1f5f9;
       background: rgba(56, 189, 248, 0.1);
       border-left: 4px solid var(--primary);
-      padding: 12px;
-      border-radius: 0 8px 8px 0;
+      padding: 14px;
+      border-radius: 0 10px 10px 0;
       margin-bottom: 12px;
     }
     .hazard-box {
-      padding: 10px 12px;
+      padding: 12px 14px;
       border-radius: 8px;
       font-weight: 600;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     }
     .hazard-alert {
       background: rgba(239, 68, 68, 0.2);
@@ -649,22 +754,16 @@ void handleRoot() {
     .info-row {
       display: flex;
       justify-content: space-between;
-      padding: 8px 0;
+      padding: 10px 0;
       border-bottom: 1px solid var(--border);
       font-size: 0.95rem;
     }
     .info-row:last-child { border-bottom: none; }
-    .tag {
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      background: #334155;
-    }
     .status-text {
       text-align: center;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       color: var(--text-muted);
-      margin-top: 8px;
+      margin-top: 10px;
     }
   </style>
 </head>
@@ -676,16 +775,30 @@ void handleRoot() {
     </header>
 
     <div class="card">
-      <img id="cam-preview" class="camera-frame" src="/capture" alt="Camera Feed" onerror="this.alt='Snapshot awaiting capture'">
-      <div id="status-line" class="status-text">Ready. Tap 'Describe Surroundings' to scan.</div>
+      <div class="viewfinder-header">
+        <div id="live-badge" class="live-indicator">
+          <span class="live-dot"></span>
+          <span id="fps-counter">REAL-TIME STREAM</span>
+        </div>
+        <div>
+          <select id="resSelector" class="res-select" onchange="changeResolution(this.value)">
+            <option value="qvga">QVGA (Fastest ~25 FPS)</option>
+            <option value="vga" selected>VGA (Balanced ~15 FPS)</option>
+            <option value="svga">SVGA (High Detail)</option>
+          </select>
+        </div>
+      </div>
+
+      <img id="cam-preview" class="camera-frame" alt="Camera Feed">
+      <div id="status-line" class="status-text">Continuous real-time viewfinder active.</div>
     </div>
 
     <div class="btn-group">
       <button class="btn-primary" onclick="triggerDescribe()">
         <span>🎙️</span> Describe Surroundings
       </button>
-      <button class="btn-secondary" onclick="refreshSnapshot()">
-        <span>📷</span> Snapshot
+      <button id="streamToggleBtn" class="btn-secondary" onclick="toggleStreamMode()">
+        <span>⏸️</span> Pause Stream
       </button>
       <button class="btn-secondary" onclick="toggleFlash()">
         <span>💡</span> Toggle Flash
@@ -719,14 +832,86 @@ void handleRoot() {
   </div>
 
   <script>
+    let isStreaming = true;
+    let streamFailed = false;
     let currentSpeech = "";
+    let pollTimer = null;
+
+    const imgElement = document.getElementById('cam-preview');
+    const streamUrl = `http://${window.location.hostname}:81/stream`;
+
+    function startStream() {
+      isStreaming = true;
+      document.getElementById('streamToggleBtn').innerHTML = '<span>⏸️</span> Pause Stream';
+      document.getElementById('live-badge').style.display = 'inline-flex';
+
+      // Load port 81 MJPEG video stream
+      imgElement.src = streamUrl;
+
+      // Fallback if port 81 is blocked on user network
+      imgElement.onerror = function() {
+        if (!streamFailed && isStreaming) {
+          streamFailed = true;
+          console.warn("Port 81 stream blocked or failed. Switching to fast frame polling.");
+          startFastPolling();
+        }
+      };
+    }
+
+    function stopStream() {
+      isStreaming = false;
+      if (pollTimer) clearTimeout(pollTimer);
+      imgElement.src = '/capture?t=' + Date.now();
+      document.getElementById('streamToggleBtn').innerHTML = '<span>▶️</span> Resume Stream';
+      document.getElementById('live-badge').style.display = 'none';
+      document.getElementById('status-line').innerText = 'Stream paused. Showing static snapshot.';
+    }
+
+    function toggleStreamMode() {
+      if (isStreaming) {
+        stopStream();
+      } else {
+        startStream();
+      }
+    }
+
+    // High-speed snapshot polling fallback
+    function startFastPolling() {
+      if (!isStreaming) return;
+      const nextImg = new Image();
+      const startT = performance.now();
+      nextImg.onload = function() {
+        imgElement.src = nextImg.src;
+        const fps = Math.round(1000 / Math.max(1, performance.now() - startT));
+        document.getElementById('fps-counter').innerText = fps + ' FPS';
+        if (isStreaming) {
+          pollTimer = setTimeout(startFastPolling, 40);
+        }
+      };
+      nextImg.onerror = function() {
+        if (isStreaming) pollTimer = setTimeout(startFastPolling, 200);
+      };
+      nextImg.src = '/capture?t=' + Date.now();
+    }
+
+    async function changeResolution(res) {
+      document.getElementById('status-line').innerText = 'Switching resolution to ' + res + '...';
+      try {
+        await fetch('/resolution?size=' + res);
+        document.getElementById('status-line').innerText = 'Resolution set to ' + res + '.';
+        if (isStreaming && !streamFailed) {
+          imgElement.src = streamUrl + '?t=' + Date.now();
+        }
+      } catch (err) {
+        document.getElementById('status-line').innerText = 'Error changing resolution: ' + err.message;
+      }
+    }
 
     function speakText(text) {
       if ('speechSynthesis' in window && text) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 1.05;
-        utterance.pitch = 1.0;
         window.speechSynthesis.speak(utterance);
       }
     }
@@ -738,52 +923,44 @@ void handleRoot() {
     async function triggerDescribe() {
       const statusLine = document.getElementById('status-line');
       const speechBox = document.getElementById('speech-text');
-      statusLine.innerText = "Analyzing scene... Please hold cane steady.";
-      speechBox.innerText = "Scanning scene for obstacles...";
+      statusLine.innerText = 'Analyzing surroundings... Please hold steady.';
+      speechBox.innerText = 'Scanning scene for obstacles and walkable path...';
 
       try {
         const response = await fetch('/describe', { method: 'POST' });
         const data = await response.json();
 
-        // Update preview image
-        document.getElementById('cam-preview').src = '/capture?t=' + Date.now();
-
-        // Update speech text
-        currentSpeech = data.spoken_summary || "Scene analyzed.";
+        currentSpeech = data.spoken_summary || 'Surroundings analyzed.';
         speechBox.innerText = currentSpeech;
         speakText(currentSpeech);
 
-        // Update Hazards
         const hazardBanner = document.getElementById('hazard-banner');
-        if (data.urgent_hazards && data.urgent_hazards.length > 0 && data.urgent_hazards[0] !== "None") {
-          hazardBanner.className = "hazard-box hazard-alert";
-          hazardBanner.innerText = "⚠️ Hazard: " + data.urgent_hazards.join(", ");
+        if (data.urgent_hazards && data.urgent_hazards.length > 0 && data.urgent_hazards[0] !== 'None') {
+          hazardBanner.className = 'hazard-box hazard-alert';
+          hazardBanner.innerText = '⚠️ Hazard: ' + data.urgent_hazards.join(', ');
         } else {
-          hazardBanner.className = "hazard-box hazard-clear";
-          hazardBanner.innerText = "✅ No urgent hazards detected";
+          hazardBanner.className = 'hazard-box hazard-clear';
+          hazardBanner.innerText = '✅ No urgent hazards detected';
         }
 
-        // Update Path & Signs
-        document.getElementById('walkable-path').innerText = data.walkable_path || "Clear";
-        document.getElementById('signs-text').innerText = data.text_and_signs || "None";
-        document.getElementById('latency-text').innerText = (data.latency_ms || 0) + " ms";
-        statusLine.innerText = "Analysis complete (" + (data.latency_ms || 0) + " ms)";
+        document.getElementById('walkable-path').innerText = data.walkable_path || 'Clear';
+        document.getElementById('signs-text').innerText = data.text_and_signs || 'None';
+        document.getElementById('latency-text').innerText = (data.latency_ms || 0) + ' ms';
+        statusLine.innerText = 'Analysis complete (' + (data.latency_ms || 0) + ' ms)';
       } catch (err) {
-        statusLine.innerText = "Error: " + err.message;
-        speechBox.innerText = "Failed to analyze scene. Please check connection.";
+        statusLine.innerText = 'Error: ' + err.message;
+        speechBox.innerText = 'Failed to analyze scene. Please check connection.';
       }
-    }
-
-    function refreshSnapshot() {
-      document.getElementById('cam-preview').src = '/capture?t=' + Date.now();
-      document.getElementById('status-line').innerText = "Snapshot updated.";
     }
 
     async function toggleFlash() {
       const res = await fetch('/flash');
       const data = await res.json();
-      document.getElementById('status-line').innerText = "Flash " + (data.flash ? "ON" : "OFF");
+      document.getElementById('status-line').innerText = 'Flashlight ' + (data.flash ? 'ON' : 'OFF');
     }
+
+    // Start live stream immediately on page load
+    window.addEventListener('load', startStream);
   </script>
 </body>
 </html>
@@ -805,8 +982,47 @@ void handleCapture() {
   server.send(200, "image/jpeg", "");
 
   WiFiClient client = server.client();
-  client.write(fb->buf, fb->len);
+  const size_t chunkSize = 2048;
+  size_t remaining = fb->len;
+  uint8_t *ptr = fb->buf;
+  while (remaining > 0 && client.connected()) {
+    size_t toWrite = (remaining < chunkSize) ? remaining : chunkSize;
+    client.write(ptr, toWrite);
+    ptr += toWrite;
+    remaining -= toWrite;
+  }
   esp_camera_fb_return(fb);
+}
+
+void handleResolution() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (!server.hasArg("size")) {
+    server.send(400, "text/plain", "Missing size parameter: qvga, vga, or svga");
+    return;
+  }
+
+  String sizeStr = server.arg("size");
+  sizeStr.toLowerCase();
+
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) {
+    server.send(500, "text/plain", "Sensor not ready");
+    return;
+  }
+
+  if (sizeStr == "qvga") {
+    s->set_framesize(s, FRAMESIZE_QVGA);   // 320x240 (Fastest 25+ FPS)
+  } else if (sizeStr == "vga") {
+    s->set_framesize(s, FRAMESIZE_VGA);    // 640x480 (Balanced ~15 FPS)
+  } else if (sizeStr == "svga") {
+    s->set_framesize(s, FRAMESIZE_SVGA);   // 800x600 (High detail)
+  } else {
+    server.send(400, "text/plain", "Invalid resolution: use qvga, vga, or svga");
+    return;
+  }
+
+  Serial.printf("[CAM] Resolution switched to: %s\n", sizeStr.c_str());
+  server.send(200, "application/json", "{\"status\":\"ok\",\"resolution\":\"" + sizeStr + "\"}");
 }
 
 void handleDescribe() {
@@ -886,7 +1102,6 @@ void handleSerialCommands() {
 // Hardware Trigger Pin Monitor
 // ============================================================================
 void checkHardwareTrigger() {
-  // Active LOW trigger with pull-up
   if (digitalRead(TRIGGER_PIN) == LOW) {
     if (millis() - lastTriggerTime > DEBOUNCE_DELAY_MS) {
       lastTriggerTime = millis();
