@@ -12,15 +12,15 @@ This document details the active electrical wiring for the multi-sensor Intellig
 | **Ultrasonic Sensor (1× HC-SR04)** | ECHO | **GPIO 1** | Direct connection to GPIO 1 (bench prototype) |
 | **Shared I2C Bus** | SDA | **GPIO 4** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
 | **Shared I2C Bus** | SCL | **GPIO 5** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
-| **Motor 1 (Primary Proximity)** | IN / SIG | **GPIO 6** | Forward obstacle proximity tactile feedback (0–60 cm); LEDC Ch 0, 200 Hz PWM |
-| **Piezo Buzzer** | Signal | **GPIO 7** | Proximity warning beeps and high-urgency fall alarm tones |
-| **Motor 2 (Critical Hazard Boost)** | IN / SIG | **GPIO 9** | Critical proximity (<25 cm) high-intensity pulse alert; LEDC Ch 1, 200 Hz PWM |
+| **Motor 1 (Primary Proximity)** | IN / SIG | **GPIO 6** | Forward obstacle proximity tactile feedback (0–60 cm); LEDC Ch 0, 20 kHz silent PWM |
+| **Piezo Buzzer** | Signal | **GPIO 7** | Proximity warning beeps and high-urgency fall alarm tones (LEDC Ch 2 tone) |
+| **Motor 2 (Dual Proximity Haptic)** | IN / SIG | **GPIO 2** | Dual handle tactile feedback; LEDC Ch 1, 20 kHz silent PWM |
 | **Camera Trigger Line** | SIG Out | **GPIO 21** | Active-LOW pulse (~80 ms) sent to ESP32-CAM GPIO 13 to command instant AI snapshot |
 | **5V Power Out to CAM** | 5V | **5V Pin** | Directly supplies 5V from USB to ESP32-CAM 5V pin |
 | **Common Ground to CAM** | GND | **GND Pin** | Common reference between ESP32-C3 and ESP32-CAM |
 | *(Pushbutton)* | *(None)* | *GPIO 3* | Not connected (Trigger camera via Serial `c` or BLE `"describe"`; auto-reset on upright) |
 | *(Status LED)* | *(None)* | *GPIO 8* | Not connected (bench build without external LED) |
-| *(GPIO 2, GPIO 10)* | *(Unused)* | *2, 10* | Freed up |
+| *(GPIO 9, GPIO 10)* | *(Unused)* | *9, 10* | Freed up (GPIO 9 reserved for physical BOOT button) |
 
 ---
 
@@ -53,7 +53,7 @@ This document details the active electrical wiring for the multi-sensor Intellig
      Shared I2C  ├──────> TOF10120 (SDA: GPIO 4 [Blue], SCL: GPIO 5 [Green])
      Shared I2C  ├──────> MPU6050  (SDA: GPIO 4, SCL: GPIO 5)
      Ultrasonic  ├──────> HC-SR04  (TRIG: GPIO 0, ECHO: GPIO 1, VCC: 5V, GND: GND)
-     Haptics     ├──────> Motor 1 (GPIO 6) & Motor 2 (GPIO 9)
+     Haptics     ├──────> Motor 1 (GPIO 6) & Motor 2 (GPIO 2)
      Audio       └──────> Piezo Buzzer (GPIO 7)
 ```
 
@@ -76,12 +76,14 @@ This document details the active electrical wiring for the multi-sensor Intellig
    - `VCC` to 5V rail
    - `GND` to common GND
    - `TRIG` to ESP32-C3 GPIO 0
-   - `ECHO` to ESP32-C3 GPIO 1
-4. **Dual Vibration Actuators (Spatial & Urgency Feedback)**:
-   - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm.
-   - **Motor 2 (Critical Hazard Boost)**: Signal to GPIO 9. Delivers rapid urgent pulsing when an obstacle is within 25 cm.
-   - *Note*: Ensure vibration modules include onboard transistor drivers. Direct MCU GPIO cannot drive motor inductive coils directly.
-5. **On-Demand Camera Triggering (Without Physical Button)**:
+   - `ECHO` to ESP32-C3 GPIO 1 (configured with internal `INPUT_PULLDOWN`)
+4. **Dual Vibration Actuators (Synchronous Dual-Motor Haptic Grip)**:
+   - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm (20 kHz silent PWM).
+   - **Motor 2 (Dual Proximity)**: Signal to GPIO 2. Operates synchronously with Motor 1 for balanced tactile feedback across the cane grip (20 kHz silent PWM).
+   - *Note*: Ensure vibration modules include onboard transistor drivers (MOSFET/BJT module). Direct MCU GPIO cannot supply raw motor current.
+5. **Piezo Buzzer (Audio Proximity Warning & Alarm)**:
+   - Connected to GPIO 7. Driven by LEDC tone frequency generation (2000 Hz to 2800 Hz) to support passive piezo elements.
+6. **On-Demand Camera Triggering (Without Physical Button)**:
    - **Via Serial Monitor**: Open USB Serial at 115200 baud and type `c` or `describe` or `capture` + Enter.
    - **Via Bluetooth**: Send `"describe"`, `"cam"`, or `"capture"` over BLE NUS characteristic.
 

@@ -13,13 +13,13 @@
  *   - MPU-6050 (GY-521) 6-Axis Motion & Fall IMU (I2C Addr 0x68):
  *       Hardware I2C shared on SDA -> GPIO 4, SCL -> GPIO 5
  *   - Dual Haptic Vibration Motors:
- *       Motor 1 (Proportional Proximity): GPIO 6 (LEDC Channel 0, 200 Hz PWM)
- *       Motor 2 (Critical Hazard Boost):  GPIO 9 (LEDC Channel 1, 200 Hz PWM)
- *   - Piezo Buzzer:                       GPIO 7 (Proximity warning beeps & fall alarm)
- *   - Pushbutton (Tactile Switch):        GPIO 3 (Input Pullup; alarm reset & AI trigger)
- *   - ESP32-CAM AI Vision Trigger:        GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
- *   - Onboard Status LED:                 GPIO 8 (Active LOW)
- *   - Bluetooth Low Energy:               Nordic UART Service (NUS) Telemetry & Control
+ *       Motor 1 (Primary Proximity): GPIO 6 (LEDC Channel 0, 20 kHz silent PWM)
+ *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC Channel 1, 20 kHz silent PWM)
+ *   - Piezo Buzzer:                  GPIO 7 (LEDC Channel 2 tone generator, 2 kHz - 2.8 kHz)
+ *   - Pushbutton (Tactile Switch):   Freed / Not connected (AI triggered via Serial/BLE)
+ *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
+ *   - Onboard Status LED:            Freed / Not connected
+ *   - Bluetooth Low Energy:          Nordic UART Service (NUS) Telemetry & Control
  * ============================================================================
  */
 
@@ -42,13 +42,13 @@ constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
-constexpr uint8_t PIN_BUZZER      = 7;   // Piezo Buzzer
-constexpr uint8_t PIN_MOTOR_GND   = 9;   // Motor 2: Critical Proximity Booster (LEDC Ch 1)
+constexpr uint8_t PIN_BUZZER      = 7;   // Piezo Buzzer (LEDC Ch 2 tone generator)
+constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
 constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
 
 // Motor & Buzzer Configuration
 constexpr bool MOTOR_ACTIVE_LOW  = false;
-constexpr bool BUZZER_IS_PASSIVE = false;
+constexpr bool BUZZER_IS_PASSIVE = true;
 constexpr uint8_t MOTOR_FWD_CHANNEL = 0;
 constexpr uint8_t MOTOR_GND_CHANNEL = 1;
 constexpr uint8_t BUZZER_CHANNEL    = 2;
@@ -285,9 +285,10 @@ float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin) {
 
     // 15ms timeout allows measuring up to ~2.5m without blocking the CPU loop
     unsigned long durationUs = pulseIn(echoPin, HIGH, 15000);
-    if (durationUs == 0) return NAN;
+    // Ignore floating noise glitches (<180us is <3cm, inside transducer blind zone) or timeout (0)
+    if (durationUs < 180 || durationUs >= 15000) return NAN;
     float dist = (float)durationUs * 0.0343f / 2.0f;
-    if (dist < 2.0f || dist > 300.0f) return NAN;
+    if (dist < 3.0f || dist > 300.0f) return NAN;
     return dist;
 }
 
@@ -463,9 +464,9 @@ void setup() {
     pinMode(PIN_BUZZER, OUTPUT);
     digitalWrite(PIN_BUZZER, LOW);
 
-    // Single Ultrasonic Pins Setup (HC-SR04)
+    // Single Ultrasonic Pins Setup (HC-SR04 with internal pull-down against floating noise)
     pinMode(PIN_US_TRIG, OUTPUT);
-    pinMode(PIN_US_ECHO, INPUT);
+    pinMode(PIN_US_ECHO, INPUT_PULLDOWN);
     digitalWrite(PIN_US_TRIG, LOW);
 
     Serial.begin(115200);
@@ -476,14 +477,16 @@ void setup() {
     Serial.println("=======================================================");
 
     // Configure LEDC PWM Channels
+    // 20 kHz PWM for vibration motors: Ultrasonic & silent to human ears
+    // (eliminates 200 Hz audible motor coil whine/beeping)
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttachChannel(PIN_MOTOR_FWD, 200, 8, MOTOR_FWD_CHANNEL);
-    ledcAttachChannel(PIN_MOTOR_GND, 200, 8, MOTOR_GND_CHANNEL);
+    ledcAttachChannel(PIN_MOTOR_FWD, 20000, 8, MOTOR_FWD_CHANNEL);
+    ledcAttachChannel(PIN_MOTOR_GND, 20000, 8, MOTOR_GND_CHANNEL);
     if (BUZZER_IS_PASSIVE) ledcAttachChannel(PIN_BUZZER, 2000, 8, BUZZER_CHANNEL);
 #else
-    ledcSetup(MOTOR_FWD_CHANNEL, 200, 8);
+    ledcSetup(MOTOR_FWD_CHANNEL, 20000, 8);
     ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
-    ledcSetup(MOTOR_GND_CHANNEL, 200, 8);
+    ledcSetup(MOTOR_GND_CHANNEL, 20000, 8);
     ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
     if (BUZZER_IS_PASSIVE) {
         ledcSetup(BUZZER_CHANNEL, 2000, 8);
@@ -493,6 +496,15 @@ void setup() {
     setMotorFwdPwm(0);
     setMotorGndPwm(0);
     setBuzzer(false);
+
+    // Startup confirmation: quick 80ms chirp & dual haptic pulse
+    setBuzzer(true, 2400);
+    setMotorFwdPwm(130);
+    setMotorGndPwm(130);
+    delay(80);
+    setBuzzer(false);
+    setMotorFwdPwm(0);
+    setMotorGndPwm(0);
 
     // Initialize I2C Bus (SDA=GPIO 4, SCL=GPIO 5)
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
@@ -645,26 +657,12 @@ void loop() {
         buzzerState = false;
         setBuzzer(false);
     } else {
-        // --- Motor 1: Primary Proximity Feedback (0 to 60 cm) ---
+        // --- Dual Vibration Motors: Proportional Haptic Feedback (0 to 60 cm) ---
+        // Both motors operate synchronously to provide robust tactile feedback to the user's hand
         currentMotorFwdPwm = feedback.motorDuty;
+        currentMotorGndPwm = feedback.motorDuty;
         setMotorFwdPwm(currentMotorFwdPwm);
-
-        // --- Motor 2: Critical Proximity Booster (< 25 cm) ---
-        // When obstacle is dangerously close, Motor 2 engages for high-intensity dual-motor alert
-        if (isfinite(minObstacleDistCm) && minObstacleDistCm > 0.0f && minObstacleDistCm <= 25.0f) {
-            // Rapid urgent pulse on Motor 2 (100ms ON / 100ms OFF at full duty)
-            static bool m2PulseState = false;
-            static uint32_t lastM2PulseMs = 0;
-            if (now - lastM2PulseMs >= 100) {
-                lastM2PulseMs = now;
-                m2PulseState = !m2PulseState;
-            }
-            currentMotorGndPwm = m2PulseState ? 255 : 0;
-            setMotorGndPwm(currentMotorGndPwm);
-        } else {
-            currentMotorGndPwm = 0;
-            setMotorGndPwm(0);
-        }
+        setMotorGndPwm(currentMotorGndPwm);
 
         // --- Buzzer Audio Feedback ---
         buzzerState = beepEnvelope.update(now, feedback.beepOnMs, feedback.beepOffMs, feedback.motorDuty > 0 ? 1 : 0);

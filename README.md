@@ -23,25 +23,24 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 | Input | Firmware behavior |
 |---|---|
 | Obstacle distance >=60 cm (or >1.8m out-of-range) | Obstacle vibration (Motor 1 & 2) and proximity beeps off |
-| Obstacle distance <60 cm | Proportional Motor 1 PWM duty and increasing beep frequency as distance decreases |
-| Obstacle distance <=25 cm (Critical Proximity) | Motor 1 full duty + Motor 2 rapid urgent pulsing (dual-motor emergency warning) |
-| Obstacle distance <=10 cm | Full dual-motor commanded duty and continuous warning tone |
+| Obstacle distance <60 cm | Proportional dual-motor (Motor 1 & 2) PWM duty and increasing beep frequency as distance decreases |
+| Obstacle distance <=10 cm | Full dual-motor commanded duty (100%) and continuous warning tone |
 | Pushbutton press or BLE `"describe"` | ESP32-C3 pulses GPIO 21 to trigger ESP32-CAM instant Gemini AI scene description |
 | Tilt >=65 degrees OR acceleration >=2.5 g | Fall state: motors silenced; alert buzzer tone; dispatches `FALL_STATE:1` over BLE |
 | Tilt <30 degrees or manual button press | Fall cleared; dispatches `FALL_STATE:0` over BLE and restores normal navigation |
 
-Local motor feedback is silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Dual-zone motor duty is smoothly modulated via 200 Hz LEDC hardware PWM.
+Local motor feedback is silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Dual-motor duty is smoothly modulated via 20 kHz ultrasonic LEDC hardware PWM (completely eliminating acoustic motor whine).
 
 ## Hardware and interfaces
 
 | Component | Connection |
 |---|---|
 | **TOF10120 Laser Distance Sensor** | SDA GPIO 4 (Blue), SCL GPIO 5 (Green); hardware I2C at 100 kHz (0x52, optical ToF) |
-| **Ultrasonic Sensor (1× HC-SR04)** | TRIG GPIO 0; ECHO GPIO 1 (Acoustic obstacle ranging) |
+| **Ultrasonic Sensor (1× HC-SR04)** | TRIG GPIO 0; ECHO GPIO 1 (Acoustic obstacle ranging with internal pull-down) |
 | **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x68) |
-| **Motor 1 (Primary Proximity)** | IN GPIO 6; 200 Hz LEDC PWM Ch 0 |
-| **Motor 2 (Critical Hazard Boost)** | IN GPIO 9; 200 Hz LEDC PWM Ch 1 |
-| **Piezo Buzzer** | GPIO 7; audio proximity beeps and fall alarm |
+| **Motor 1 (Primary Proximity)** | IN GPIO 6; 20 kHz LEDC PWM Ch 0 (silent ultrasonic PWM) |
+| **Motor 2 (Dual Proximity)** | IN GPIO 2; 20 kHz LEDC PWM Ch 1 (silent ultrasonic PWM) |
+| **Piezo Buzzer** | GPIO 7; LEDC tone generation (2000–2800 Hz) for audio proximity and fall alarm |
 | **Camera Trigger Line** | GPIO 21 output to ESP32-CAM GPIO 13 |
 | **ESP32-CAM Module** | OV2640 2MP Camera, powered from C3 5V/GND, Gemini AI Vision (Port 80) & Video Stream (Port 81) |
 | *(Pushbutton)* | Not connected (Trigger via Serial `c` or BLE `"describe"`; auto-reset on upright) |
