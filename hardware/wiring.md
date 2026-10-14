@@ -1,6 +1,6 @@
-# Intelligent Cane Integrated Hardware Wiring Reference (Multi-Modal TOF + Ultrasonic)
+# Intelligent Cane Integrated Hardware Wiring Reference (1× TOF + 1× Ultrasonic)
 
-This document details the complete active electrical wiring for the multi-sensor Intelligent Cane prototype featuring the **ESP32-C3 SuperMini** (Core Sensing & Haptics) and **ESP32-CAM** (AI Vision Subsystem), fusing both the **TOF10120 Laser Time-of-Flight sensor** and **HC-SR04 Ultrasonic sensor(s)** for comprehensive obstacle detection.
+This document details the active electrical wiring for the multi-sensor Intelligent Cane prototype featuring the **ESP32-C3 SuperMini** (Core Sensing & Haptics) and **ESP32-CAM** (AI Vision Subsystem), fusing **1× TOF10120 Laser Time-of-Flight sensor** and **1× HC-SR04 Ultrasonic sensor** for obstacle detection.
 
 ---
 
@@ -8,10 +8,8 @@ This document details the complete active electrical wiring for the multi-sensor
 
 | Peripheral | Signal | ESP32-C3 GPIO | Electrical Configuration / Function |
 |---|---|:---:|---|
-| **Forward Ultrasonic (US1)** | TRIG | 0 | 10 µs trigger pulse output (Forward / Chest obstacle acoustic ranging) |
-| **Forward Ultrasonic (US1)** | ECHO | 1 | Direct connection to GPIO 1 (bench prototype) |
-| **Lower Ultrasonic (US2)** | TRIG | 2 | 10 µs trigger pulse output (Lower / Ground obstacle acoustic ranging) |
-| **Lower Ultrasonic (US2)** | ECHO | 10 | Direct connection to GPIO 10 |
+| **Ultrasonic Sensor (1× HC-SR04)** | TRIG | 0 | 10 µs trigger pulse output (Forward acoustic ranging) |
+| **Ultrasonic Sensor (1× HC-SR04)** | ECHO | 1 | Direct connection to GPIO 1 (bench prototype) |
 | **Pushbutton** | Switch to GND | 3 | Internal `INPUT_PULLUP`. Short press: manual AI camera trigger; fall alarm manual reset |
 | **I2C Bus (Shared)** | SDA | 4 | Hardware I2C at 100 kHz; 3.3V pull-ups. Shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
 | **I2C Bus (Shared)** | SCL | 5 | Hardware I2C at 100 kHz; 3.3V pull-ups. Shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
@@ -20,6 +18,7 @@ This document details the complete active electrical wiring for the multi-sensor
 | **Status LED** | Onboard | 8 | Active-LOW heartbeat / alert indicator |
 | **Motor 2 (Critical Hazard Boost)** | IN / SIG | 9 | Critical proximity (<25 cm) high-intensity pulse alert; LEDC Ch 1, 200 Hz PWM |
 | **Camera Trigger Line** | SIG Out | 21 | Active-LOW pulse (~80 ms) sent to ESP32-CAM GPIO 13 to command instant AI snapshot |
+| *(GPIO 2, GPIO 10)* | *(Unused)* | *2, 10* | Freed up (previously used by secondary ultrasonic) |
 
 ---
 
@@ -57,7 +56,7 @@ This document details the complete active electrical wiring for the multi-sensor
 
 ### Sensor & Actuator Connection Details:
 1. **Power Supply**:
-   - Power both MCUs, HC-SR04 sensors, TOF10120, and vibration motor modules from a regulated **5V source** (e.g. 5V rail or power bank) capable of delivering at least **1.5A–2.0A peak** (ESP32-CAM Wi-Fi bursts draw up to 500mA).
+   - Power both MCUs, HC-SR04, TOF10120, and vibration motor modules from a regulated **5V source** (e.g. 5V rail or power bank) capable of delivering at least **1.5A–2.0A peak** (ESP32-CAM Wi-Fi bursts draw up to 500mA).
 2. **TOF10120 Laser Distance Sensor (I2C Addr `0x52`) Wire Harness**:
    | Wire Color | Pin Label | Function | Connect to ESP32-C3 / Power |
    |:---|:---|:---|:---|
@@ -72,10 +71,11 @@ This document details the complete active electrical wiring for the multi-sensor
    - `GND` -> GND
    - `SDA` -> ESP32-C3 GPIO 4 (shared with TOF Blue wire)
    - `SCL` -> ESP32-C3 GPIO 5 (shared with TOF Green wire)
-4. **Ultrasonic Sensors (HC-SR04)**:
-   - **Forward Ultrasonic (US1)**: `VCC` to 5V, `GND` to GND, `TRIG` to GPIO 0, `ECHO` to GPIO 1.
-   - **Lower Ultrasonic (US2 - Optional)**: `VCC` to 5V, `GND` to GND, `TRIG` to GPIO 2, `ECHO` to GPIO 10.
-   - Ping timing is alternated interleaved (Cycle 0 = US1, Cycle 1 = US2) to eliminate acoustic echo cross-talk.
+4. **Ultrasonic Sensor (1× HC-SR04)**:
+   - `VCC` to 5V rail
+   - `GND` to common GND
+   - `TRIG` to ESP32-C3 GPIO 0
+   - `ECHO` to ESP32-C3 GPIO 1
 5. **Dual Vibration Actuators (Spatial & Urgency Feedback)**:
    - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm.
    - **Motor 2 (Critical Hazard Boost)**: Signal to GPIO 9. Delivers rapid urgent pulsing when an obstacle is within 25 cm.

@@ -37,8 +37,7 @@ Local motor feedback is silenced during fall events to prevent user distress whi
 | Component | Connection |
 |---|---|
 | **TOF10120 Laser Distance Sensor** | SDA GPIO 4 (Blue), SCL GPIO 5 (Green); hardware I2C at 100 kHz (0x52, optical ToF) |
-| **Forward HC-SR04 Ultrasonic (US1)** | TRIG GPIO 0; ECHO GPIO 1 (Chest/Forward acoustic ranging) |
-| **Lower HC-SR04 Ultrasonic (US2 - Optional)**| TRIG GPIO 2; ECHO GPIO 10 (Lower/Ground acoustic ranging) |
+| **Ultrasonic Sensor (1× HC-SR04)** | TRIG GPIO 0; ECHO GPIO 1 (Acoustic obstacle ranging) |
 | **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x68) |
 | **Motor 1 (Primary Proximity)** | IN GPIO 6; 200 Hz LEDC PWM Ch 0 |
 | **Motor 2 (Critical Hazard Boost)** | IN GPIO 9; 200 Hz LEDC PWM Ch 1 |

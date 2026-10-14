@@ -3,15 +3,13 @@
  * IntelliCane — Multi-Modal Sensing & Reflex Firmware (ESP32-C3 SuperMini)
  * Neural-Nexus | IoTrix 2.0 (Track A Embedded IoT System Development)
  * 
- * Multi-Modal Sensor Fusion:
+ * Hardware Architecture (1× TOF10120 + 1× Ultrasonic + 1× MPU6050):
  *   - TOF10120 Laser Time-of-Flight Sensor (I2C Addr 0x52):
  *       High-speed millimeter optical ranging.
  *       SDA -> GPIO 4 (Blue wire), SCL -> GPIO 5 (Green wire)
- *   - Ultrasonic Distance Sensors (HC-SR04):
+ *   - Ultrasonic Distance Sensor (1× HC-SR04):
  *       Wide-angle acoustic echo ranging (detects glass, broad barriers, meshes).
- *       US1 (Forward/Chest):  TRIG -> GPIO 0, ECHO -> GPIO 1
- *       US2 (Lower/Ground):   TRIG -> GPIO 2, ECHO -> GPIO 10
- *       (Interleaved ping scheduling eliminates acoustic cross-talk).
+ *       TRIG -> GPIO 0, ECHO -> GPIO 1
  *   - MPU-6050 (GY-521) 6-Axis Motion & Fall IMU (I2C Addr 0x68):
  *       Hardware I2C shared on SDA -> GPIO 4, SCL -> GPIO 5
  *   - Dual Haptic Vibration Motors:
@@ -39,10 +37,8 @@
 // ============================================================================
 // Pin Definitions (ESP32-C3 SuperMini)
 // ============================================================================
-constexpr uint8_t PIN_US1_TRIG    = 0;   // Ultrasonic 1 (Forward/Chest) Trigger
-constexpr uint8_t PIN_US1_ECHO    = 1;   // Ultrasonic 1 (Forward/Chest) Echo
-constexpr uint8_t PIN_US2_TRIG    = 2;   // Ultrasonic 2 (Lower/Ground) Trigger
-constexpr uint8_t PIN_US2_ECHO    = 10;  // Ultrasonic 2 (Lower/Ground) Echo
+constexpr uint8_t PIN_US_TRIG     = 0;   // Ultrasonic Trigger (HC-SR04)
+constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
 constexpr uint8_t PIN_BUTTON      = 3;   // Pushbutton (Input Pullup; Camera trigger & fall reset)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
@@ -85,9 +81,7 @@ uint32_t lastTofRetryMs = 0;
 uint8_t tofFailCount = 0;
 float tofDistanceCm = NAN;
 
-float distUs1Cm = NAN; // Forward / Chest Ultrasonic
-float distUs2Cm = NAN; // Lower / Ground Ultrasonic
-uint8_t usCycleToggle = 0; // Alternates pinging US1 and US2 to prevent acoustic cross-talk
+float distUsCm = NAN; // Forward Ultrasonic reading
 
 float tiltAngleDeg = 0.0f;
 float gMagnitude = 1.0f;
@@ -282,7 +276,7 @@ void setBuzzer(bool state, uint16_t frequencyHz) {
 }
 
 // ============================================================================
-// Ultrasonic Ranging Helper
+// Ultrasonic Ranging Helper (1× HC-SR04)
 // ============================================================================
 float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin) {
     digitalWrite(trigPin, LOW);
@@ -474,19 +468,16 @@ void setup() {
     pinMode(PIN_LED_C3, OUTPUT);
     digitalWrite(PIN_LED_C3, HIGH); // Off
 
-    // Ultrasonic Pins Setup
-    pinMode(PIN_US1_TRIG, OUTPUT);
-    pinMode(PIN_US1_ECHO, INPUT);
-    pinMode(PIN_US2_TRIG, OUTPUT);
-    pinMode(PIN_US2_ECHO, INPUT);
-    digitalWrite(PIN_US1_TRIG, LOW);
-    digitalWrite(PIN_US2_TRIG, LOW);
+    // Single Ultrasonic Pins Setup (HC-SR04)
+    pinMode(PIN_US_TRIG, OUTPUT);
+    pinMode(PIN_US_ECHO, INPUT);
+    digitalWrite(PIN_US_TRIG, LOW);
 
     Serial.begin(115200);
     delay(500);
 
     Serial.println("\n=======================================================");
-    Serial.println("  INTELLICANE — MULTI-MODAL FUSED SYSTEM (C3)         ");
+    Serial.println("  INTELLICANE — FUSED SENSOR SYSTEM (1× TOF + 1× US)  ");
     Serial.println("=======================================================");
 
     // Configure LEDC PWM Channels
@@ -534,14 +525,8 @@ void loop() {
     if (now - lastSensorMs >= 35) {
         lastSensorMs = now;
 
-        // Alternate Ultrasonic pings between US1 and US2 to eliminate sonic cross-talk
-        if (usCycleToggle == 0) {
-            distUs1Cm = readUltrasonicCm(PIN_US1_TRIG, PIN_US1_ECHO);
-            usCycleToggle = 1;
-        } else {
-            distUs2Cm = readUltrasonicCm(PIN_US2_TRIG, PIN_US2_ECHO);
-            usCycleToggle = 0;
-        }
+        // Read single forward HC-SR04 ultrasonic sensor
+        distUsCm = readUltrasonicCm(PIN_US_TRIG, PIN_US_ECHO);
 
         // Read TOF10120 Laser Distance Sensor (I2C 0x52)
         if (tofAvailable) {
@@ -654,15 +639,9 @@ void loop() {
         minObstacleDistCm = tofDistanceCm;
     }
 
-    if (isfinite(distUs1Cm) && distUs1Cm > 0.0f) {
-        if (!isfinite(minObstacleDistCm) || distUs1Cm < minObstacleDistCm) {
-            minObstacleDistCm = distUs1Cm;
-        }
-    }
-
-    if (isfinite(distUs2Cm) && distUs2Cm > 0.0f) {
-        if (!isfinite(minObstacleDistCm) || distUs2Cm < minObstacleDistCm) {
-            minObstacleDistCm = distUs2Cm;
+    if (isfinite(distUsCm) && distUsCm > 0.0f) {
+        if (!isfinite(minObstacleDistCm) || distUsCm < minObstacleDistCm) {
+            minObstacleDistCm = distUsCm;
         }
     }
 
@@ -728,10 +707,8 @@ void loop() {
         else if (tofAvailable) snprintf(tofBuf, sizeof(tofBuf), "CLEAR");
         else snprintf(tofBuf, sizeof(tofBuf), "NO_TOF");
 
-        char usBuf[20];
-        if (isfinite(distUs1Cm) && isfinite(distUs2Cm)) snprintf(usBuf, sizeof(usBuf), "%4.1f/%4.1f", distUs1Cm, distUs2Cm);
-        else if (isfinite(distUs1Cm)) snprintf(usBuf, sizeof(usBuf), "%4.1fcm", distUs1Cm);
-        else if (isfinite(distUs2Cm)) snprintf(usBuf, sizeof(usBuf), "%4.1fcm", distUs2Cm);
+        char usBuf[16];
+        if (isfinite(distUsCm)) snprintf(usBuf, sizeof(usBuf), "%4.1fcm", distUsCm);
         else snprintf(usBuf, sizeof(usBuf), "NO_ECHO");
 
         char tiltBuf[16];
