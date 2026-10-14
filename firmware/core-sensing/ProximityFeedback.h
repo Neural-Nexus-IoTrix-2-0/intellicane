@@ -30,15 +30,12 @@ inline ProximityFeedback feedbackForDistance(float distanceCm) {
     }
     float proximity = (60.0f - distanceCm) / 50.0f;
     if (proximity > 1.0f) proximity = 1.0f;
-    // Pleasant, comfortable acoustic tuning:
-    // - Short, gentle pips (25ms - 45ms) instead of long ear-piercing screeches
-    // - Relaxed, progressive intervals (850ms down to 140ms) giving ears breathing room
-    // - Warm, pleasant musical frequency range (700 Hz - 1100 Hz) instead of shrill 2800 Hz
+    // Minimum duty helps overcome motor starting friction. Full strength at 10 cm.
     return {
         static_cast<uint8_t>(100 + proximity * 155),
-        static_cast<uint16_t>(25 + proximity * 20),
-        static_cast<uint16_t>(850 - proximity * 710),
-        static_cast<uint16_t>(700 + proximity * 400)
+        static_cast<uint16_t>(60 + proximity * 140),
+        static_cast<uint16_t>(740 - proximity * 700),
+        static_cast<uint16_t>(1200 + proximity * 1600)
     };
 }
 

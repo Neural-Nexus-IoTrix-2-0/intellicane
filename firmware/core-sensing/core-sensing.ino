@@ -48,9 +48,9 @@ constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM
 
 // Motor & Buzzer Configuration
 constexpr bool MOTOR_ACTIVE_LOW   = false;
-constexpr bool BUZZER_IS_PASSIVE  = false; // Active Buzzer has built-in oscillator (DC ON/OFF)
+// Active buzzer: DC on/off. Passive piezo: dedicated audio-frequency PWM.
+constexpr bool BUZZER_IS_PASSIVE  = false;
 constexpr bool BUZZER_ACTIVE_LOW  = false; // Set to true if buzzer module is active-LOW
-constexpr bool BUZZER_USE_TONE    = true;  // Modulates active buzzer at pleasant 700-1100 Hz to prevent high-pitched screeching
 constexpr uint8_t MOTOR_FWD_CHANNEL = 0;
 constexpr uint8_t MOTOR_GND_CHANNEL = 1;
 constexpr uint8_t BUZZER_CHANNEL    = 2;
@@ -259,12 +259,12 @@ void setBuzzer(bool state, uint16_t frequencyHz) {
     static bool previousState = false;
     static uint16_t previousFrequency = 0;
     if (initialized && state == previousState &&
-        ((!BUZZER_USE_TONE && !BUZZER_IS_PASSIVE) || !state || frequencyHz == previousFrequency)) return;
+        (!BUZZER_IS_PASSIVE || !state || frequencyHz == previousFrequency)) return;
     initialized = true;
     previousState = state;
     previousFrequency = frequencyHz;
 
-    if (BUZZER_USE_TONE || BUZZER_IS_PASSIVE) {
+    if (BUZZER_IS_PASSIVE) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
         ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
 #else
@@ -485,14 +485,14 @@ void setup() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     ledcAttachChannel(PIN_MOTOR_FWD, 20000, 8, MOTOR_FWD_CHANNEL);
     ledcAttachChannel(PIN_MOTOR_GND, 20000, 8, MOTOR_GND_CHANNEL);
-    if (BUZZER_USE_TONE || BUZZER_IS_PASSIVE) ledcAttachChannel(PIN_BUZZER, 800, 8, BUZZER_CHANNEL);
+    if (BUZZER_IS_PASSIVE) ledcAttachChannel(PIN_BUZZER, 2000, 8, BUZZER_CHANNEL);
 #else
     ledcSetup(MOTOR_FWD_CHANNEL, 20000, 8);
     ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
     ledcSetup(MOTOR_GND_CHANNEL, 20000, 8);
     ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
-    if (BUZZER_USE_TONE || BUZZER_IS_PASSIVE) {
-        ledcSetup(BUZZER_CHANNEL, 800, 8);
+    if (BUZZER_IS_PASSIVE) {
+        ledcSetup(BUZZER_CHANNEL, 2000, 8);
         ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
     }
 #endif
@@ -500,11 +500,11 @@ void setup() {
     setMotorGndPwm(0);
     setBuzzer(false);
 
-    // Startup confirmation: soft 35ms pleasant pip & dual haptic pulse
-    setBuzzer(true, 800);
+    // Startup confirmation: 50ms confirmation & dual haptic pulse
+    setBuzzer(true, 2000);
     setMotorFwdPwm(120);
     setMotorGndPwm(120);
-    delay(35);
+    delay(50);
     setBuzzer(false);
     setMotorFwdPwm(0);
     setMotorGndPwm(0);
