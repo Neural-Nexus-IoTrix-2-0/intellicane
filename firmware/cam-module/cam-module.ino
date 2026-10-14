@@ -1360,6 +1360,8 @@ void sendFramedImageOverSerial() {
   Serial.write(0xAA);
   Serial.flush();
 
+  Serial.printf("\n[CAM SUCCESS] Photo captured (%u bytes, %dx%d) and transferred successfully over Serial!\n", fb->len, fb->width, fb->height);
+
   esp_camera_fb_return(fb);
   setStatusLed(false);
 }

@@ -410,7 +410,11 @@ void captureAndStreamImageToBle() {
     }
 
     blePrintln("IMG:END");
-    Serial.println("[AI VISION] Image stream to phone completed successfully!\n");
+    Serial.println("\n=======================================================");
+    Serial.printf("[AI VISION SUCCESS] Photo captured and transferred successfully!\n");
+    Serial.printf("  * Image size: %u bytes (%dx%d)\n", imgLen, imgW, imgH);
+    Serial.printf("  * Transferred: %u BLE chunks to phone\n", totalChunks);
+    Serial.println("=======================================================\n");
 }
 
 // ============================================================================
