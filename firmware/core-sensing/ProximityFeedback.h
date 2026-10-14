@@ -36,8 +36,8 @@ inline ProximityFeedback feedbackForDistance(float distanceCm) {
     // Pleasant acoustic tuning:
     // - CONSTANT, fixed frequency (800 Hz) throughout all distances (no pitch shifting)
     // - Timing only: pulses accelerate progressively from ~1 pulse/sec at 60cm to ~6 pulses/sec at 10cm
-    // - Short, crisp 35ms - 45ms pulses that are gentle and pleasant on the ears
-    uint8_t motorDuty = static_cast<uint8_t>(100 + proximity * 155);
+    // - Minimum duty 120 ensures brushed vibration motors overcome initial mechanical stiction
+    uint8_t motorDuty = static_cast<uint8_t>(120 + proximity * 135);
     uint16_t beepOnMs = static_cast<uint16_t>(35 + proximity * 10);     // 35ms to 45ms
     uint16_t beepOffMs = static_cast<uint16_t>(850 - proximity * 720);  // 850ms down to 130ms pause
     uint16_t toneHz = PLEASANT_ALERT_TONE_HZ;                           // Constant 800 Hz!

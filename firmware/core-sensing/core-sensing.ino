@@ -13,8 +13,8 @@
  *   - MPU-6050 (GY-521) 6-Axis Motion & Fall IMU (I2C Addr 0x68):
  *       Hardware I2C shared on SDA -> GPIO 4, SCL -> GPIO 5
  *   - Dual Haptic Vibration Motors:
- *       Motor 1 (Primary Proximity): GPIO 6 (LEDC Channel 0, 20 kHz silent PWM)
- *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC Channel 1, 20 kHz silent PWM)
+ *       Motor 1 (Primary Proximity): GPIO 6 (LEDC, 200 Hz brushed DC motor PWM)
+ *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC, 200 Hz brushed DC motor PWM)
  *   - Gentle Alert Buzzer:           GPIO 7 (Constant 800 Hz gentle chime, proximity-accelerated pulses)
  *   - Pushbutton (Tactile Switch):   Freed / Not connected (AI triggered via Serial/BLE)
  *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
@@ -47,10 +47,11 @@ constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC
 constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
 
 // Motor & Buzzer Configuration
-constexpr bool MOTOR_ACTIVE_LOW   = false;
-constexpr uint8_t MOTOR_FWD_CHANNEL = 0;
-constexpr uint8_t MOTOR_GND_CHANNEL = 1;
-constexpr uint8_t BUZZER_CHANNEL    = 2;
+constexpr bool MOTOR_ACTIVE_LOW      = false;
+constexpr uint32_t MOTOR_PWM_FREQ_HZ = 200; // 200 Hz carrier frequency optimal for DC brushed vibration motors
+constexpr uint8_t MOTOR_FWD_CHANNEL  = 0;
+constexpr uint8_t MOTOR_GND_CHANNEL  = 1;
+constexpr uint8_t BUZZER_CHANNEL     = 2;
 
 // Nordic UART Service (NUS) UUIDs
 #define NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -144,6 +145,15 @@ class CaneRxCallbacks : public BLECharacteristicCallbacks {
                 Serial.println("[BLE] AI camera capture triggered via Bluetooth command!");
                 triggerCameraSnapshot();
                 blePrintln(">>> [AI VISION] Camera capture triggered! Analyzing surroundings... <<<");
+            } else if (lower.indexOf("motor") >= 0 || lower == "m" || lower == "test") {
+                Serial.println("[BLE] Motor diagnostic sequence requested!");
+                blePrintln("[TEST] Testing Motor 1 (GPIO 6) solo 500ms...");
+                setMotorFwdPwm(255); setMotorGndPwm(0); delay(500); setMotorFwdPwm(0); delay(250);
+                blePrintln("[TEST] Testing Motor 2 (GPIO 2) solo 500ms...");
+                setMotorFwdPwm(0); setMotorGndPwm(255); delay(500); setMotorGndPwm(0); delay(250);
+                blePrintln("[TEST] Testing dual motors synchronized 300ms...");
+                setMotorFwdPwm(255); setMotorGndPwm(255); delay(300); setMotorFwdPwm(0); setMotorGndPwm(0);
+                blePrintln("[TEST] Motor diagnostic complete.");
             }
         }
     }
@@ -472,16 +482,19 @@ void setup() {
     Serial.println("=======================================================");
 
     // Configure LEDC PWM Channels
-    // 20 kHz PWM for vibration motors: Ultrasonic & silent to human ears
-    // (eliminates 200 Hz audible motor coil whine/beeping)
+    // 200 Hz carrier frequency optimal for miniature DC brushed vibration motors
+    // (Prevents inductive choke and capacitor bypass at high frequencies)
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttachChannel(PIN_MOTOR_FWD, 20000, 8, MOTOR_FWD_CHANNEL);
-    ledcAttachChannel(PIN_MOTOR_GND, 20000, 8, MOTOR_GND_CHANNEL);
-    ledcAttachChannel(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8, BUZZER_CHANNEL);
+    bool m1Ok = ledcAttach(PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, 8);
+    bool m2Ok = ledcAttach(PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, 8);
+    bool buzzOk = ledcAttach(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8);
+    Serial.printf("[LEDC] Motor 1 (GPIO %d, %uHz): %s\n", PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, m1Ok ? "OK" : "FAILED");
+    Serial.printf("[LEDC] Motor 2 (GPIO %d, %uHz): %s\n", PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, m2Ok ? "OK" : "FAILED");
+    Serial.printf("[LEDC] Buzzer  (GPIO %d, %uHz): %s\n", PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, buzzOk ? "OK" : "FAILED");
 #else
-    ledcSetup(MOTOR_FWD_CHANNEL, 20000, 8);
+    ledcSetup(MOTOR_FWD_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
     ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
-    ledcSetup(MOTOR_GND_CHANNEL, 20000, 8);
+    ledcSetup(MOTOR_GND_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
     ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
     ledcSetup(BUZZER_CHANNEL, PLEASANT_ALERT_TONE_HZ, 8);
     ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
@@ -490,12 +503,31 @@ void setup() {
     setMotorGndPwm(0);
     setBuzzer(false);
 
-    // Startup confirmation: gentle 40ms 800 Hz pip & dual haptic pulse
+    // Startup confirmation: gentle 60ms 800 Hz chime pip
     setBuzzer(true, PLEASANT_ALERT_TONE_HZ);
-    setMotorFwdPwm(120);
-    setMotorGndPwm(120);
-    delay(40);
+    delay(60);
     setBuzzer(false);
+
+    // Startup Diagnostic & Stiction Kick:
+    // 1. Spin Motor 1 (GPIO 6) solo for 200ms at full power
+    Serial.println("[HAPTIC] Boot Diagnostic: Pulse Motor 1 (GPIO 6)...");
+    setMotorFwdPwm(255);
+    delay(200);
+    setMotorFwdPwm(0);
+    delay(100);
+
+    // 2. Spin Motor 2 (GPIO 2) solo for 200ms at full power
+    Serial.println("[HAPTIC] Boot Diagnostic: Pulse Motor 2 (GPIO 2)...");
+    setMotorGndPwm(255);
+    delay(200);
+    setMotorGndPwm(0);
+    delay(100);
+
+    // 3. Both motors dual synchronous pulse (150ms)
+    Serial.println("[HAPTIC] Boot Diagnostic: Dual motors synchronized pulse...");
+    setMotorFwdPwm(200);
+    setMotorGndPwm(200);
+    delay(150);
     setMotorFwdPwm(0);
     setMotorGndPwm(0);
 
@@ -554,6 +586,26 @@ void loop() {
                 Serial.println("[Serial] Fall alert cleared via Serial Monitor.");
                 if (bleClientConnected) {
                     blePrintln("FALL_STATE:0");
+                }
+            } else if (cmd == "m" || cmd == "motor" || cmd == "test") {
+                Serial.println("\n[TEST] === Haptic Motor Diagnostic Sequence Started ===");
+                Serial.println("[TEST] Step 1: Testing Motor 1 (GPIO 6) solo for 500ms at full duty...");
+                setMotorFwdPwm(255); setMotorGndPwm(0);
+                delay(500);
+                setMotorFwdPwm(0);
+                delay(250);
+                Serial.println("[TEST] Step 2: Testing Motor 2 (GPIO 2) solo for 500ms at full duty...");
+                setMotorFwdPwm(0); setMotorGndPwm(255);
+                delay(500);
+                setMotorGndPwm(0);
+                delay(250);
+                Serial.println("[TEST] Step 3: Testing dual motors synchronized for 300ms...");
+                setMotorFwdPwm(255); setMotorGndPwm(255);
+                delay(300);
+                setMotorFwdPwm(0); setMotorGndPwm(0);
+                Serial.println("[TEST] === Haptic Motor Diagnostic Sequence Complete ===\n");
+                if (bleClientConnected) {
+                    blePrintln("[TEST] Motor diagnostic sequence complete.");
                 }
             }
         }

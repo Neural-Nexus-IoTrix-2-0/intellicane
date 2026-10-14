@@ -12,9 +12,9 @@ This document details the active electrical wiring for the multi-sensor Intellig
 | **Ultrasonic Sensor (1× HC-SR04)** | ECHO | **GPIO 1** | Direct connection to GPIO 1 (bench prototype) |
 | **Shared I2C Bus** | SDA | **GPIO 4** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
 | **Shared I2C Bus** | SCL | **GPIO 5** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
-| **Motor 1 (Primary Proximity)** | IN / SIG | **GPIO 6** | Forward obstacle proximity tactile feedback (0–60 cm); LEDC Ch 0, 20 kHz silent PWM |
+| **Motor 1 (Primary Proximity)** | IN / SIG | **GPIO 6** | Forward obstacle proximity tactile feedback (0–60 cm); LEDC, 200 Hz brushed DC PWM |
 | **Active Buzzer** | Signal | **GPIO 7** | Proximity warning beeps and high-urgency fall alarm tones (Active HIGH DC drive) |
-| **Motor 2 (Dual Proximity Haptic)** | IN / SIG | **GPIO 2** | Dual handle tactile feedback; LEDC Ch 1, 20 kHz silent PWM |
+| **Motor 2 (Dual Proximity Haptic)** | IN / SIG | **GPIO 2** | Dual handle tactile feedback; LEDC, 200 Hz brushed DC PWM |
 | **Camera Trigger Line** | SIG Out | **GPIO 21** | Active-LOW pulse (~80 ms) sent to ESP32-CAM GPIO 13 to command instant AI snapshot |
 | **5V Power Out to CAM** | 5V | **5V Pin** | Directly supplies 5V from USB to ESP32-CAM 5V pin |
 | **Common Ground to CAM** | GND | **GND Pin** | Common reference between ESP32-C3 and ESP32-CAM |
@@ -78,8 +78,8 @@ This document details the active electrical wiring for the multi-sensor Intellig
    - `TRIG` to ESP32-C3 GPIO 0
    - `ECHO` to ESP32-C3 GPIO 1 (configured with internal `INPUT_PULLDOWN`)
 4. **Dual Vibration Actuators (Synchronous Dual-Motor Haptic Grip)**:
-   - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm (20 kHz silent PWM).
-   - **Motor 2 (Dual Proximity)**: Signal to GPIO 2. Operates synchronously with Motor 1 for balanced tactile feedback across the cane grip (20 kHz silent PWM).
+   - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm (200 Hz brushed DC PWM).
+   - **Motor 2 (Dual Proximity)**: Signal to GPIO 2. Operates synchronously with Motor 1 for balanced tactile feedback across the cane grip (200 Hz brushed DC PWM).
    - *Note*: Ensure vibration modules include onboard transistor drivers (MOSFET/BJT module). Direct MCU GPIO cannot supply raw motor current.
 5. **Active Buzzer (Audio Proximity Warning & Alarm)**:
    - Connected to GPIO 7. Driven with active DC gating (`HIGH` to sound, `LOW` to silence; configurable via `BUZZER_ACTIVE_LOW`).

@@ -29,7 +29,7 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 | Tilt >=65 degrees OR acceleration >=2.5 g | Fall state: motors silenced; alert buzzer tone; dispatches `FALL_STATE:1` over BLE |
 | Tilt <30 degrees or manual button press | Fall cleared; dispatches `FALL_STATE:0` over BLE and restores normal navigation |
 
-Local motor feedback is silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Dual-motor duty is smoothly modulated via 20 kHz ultrasonic LEDC hardware PWM (completely eliminating acoustic motor whine).
+Local motor feedback is silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Dual-motor duty is smoothly modulated via 200 Hz LEDC hardware PWM (optimized for brushed DC vibration motors).
 
 ## Hardware and interfaces
 
@@ -38,8 +38,8 @@ Local motor feedback is silenced during fall events to prevent user distress whi
 | **TOF10120 Laser Distance Sensor** | SDA GPIO 4 (Blue), SCL GPIO 5 (Green); hardware I2C at 100 kHz (0x52, optical ToF) |
 | **Ultrasonic Sensor (1× HC-SR04)** | TRIG GPIO 0; ECHO GPIO 1 (Acoustic obstacle ranging with internal pull-down) |
 | **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x68) |
-| **Motor 1 (Primary Proximity)** | IN GPIO 6; 20 kHz LEDC PWM Ch 0 (silent ultrasonic PWM) |
-| **Motor 2 (Dual Proximity)** | IN GPIO 2; 20 kHz LEDC PWM Ch 1 (silent ultrasonic PWM) |
+| **Motor 1 (Primary Proximity)** | IN GPIO 6; 200 Hz LEDC PWM (brushed DC vibration motor) |
+| **Motor 2 (Dual Proximity)** | IN GPIO 2; 200 Hz LEDC PWM (brushed DC vibration motor) |
 | **Active Buzzer** | GPIO 7; active DC drive with proximity warning beeps and fall alarm |
 | **Camera Trigger Line** | GPIO 21 output to ESP32-CAM GPIO 13 |
 | **ESP32-CAM Module** | OV2640 2MP Camera, powered from C3 5V/GND, Gemini AI Vision (Port 80) & Video Stream (Port 81) |
