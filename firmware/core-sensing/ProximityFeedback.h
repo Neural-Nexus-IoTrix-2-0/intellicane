@@ -5,6 +5,11 @@
 
 struct ProximityFeedback {
     uint8_t motorDuty;
+    uint8_t motor2Duty;
+    uint16_t motor1PulseOnMs;
+    uint16_t motor1PulseOffMs;
+    uint16_t motor2PulseOnMs;
+    uint16_t motor2PulseOffMs;
     uint16_t beepOnMs;
     uint16_t beepOffMs;
     uint16_t toneHz;
@@ -23,26 +28,47 @@ struct GroundHazardFeedback {
     uint16_t pulseOffMs;
 };
 
-constexpr uint16_t PLEASANT_ALERT_TONE_HZ = 800; // Warm, gentle 800 Hz tone (easy on human ears)
+constexpr uint16_t PLEASANT_ALERT_TONE_HZ = 800; // Used only with a passive buzzer.
 
 inline ProximityFeedback feedbackForDistance(float distanceCm) {
     // No echo, invalid readings and the 60 cm boundary must not drive the motor.
     if (!isfinite(distanceCm) || distanceCm <= 0.0f || distanceCm >= 60.0f) {
-        return {0, 0, 0, 0};
+        return {0, 0, 0, 0, 0, 0, 0, 0, 0};
     }
     float proximity = (60.0f - distanceCm) / 50.0f;
     if (proximity > 1.0f) proximity = 1.0f;
 
-    // Pleasant acoustic tuning:
-    // - CONSTANT, fixed frequency (800 Hz) throughout all distances (no pitch shifting)
-    // - Timing only: pulses accelerate progressively from ~1 pulse/sec at 60cm to ~6 pulses/sec at 10cm
-    // - Minimum duty 120 ensures brushed vibration motors overcome initial mechanical stiction
-    uint8_t motorDuty = static_cast<uint8_t>(120 + proximity * 135);
-    uint16_t beepOnMs = static_cast<uint16_t>(35 + proximity * 10);     // 35ms to 45ms
-    uint16_t beepOffMs = static_cast<uint16_t>(850 - proximity * 720);  // 850ms down to 130ms pause
-    uint16_t toneHz = PLEASANT_ALERT_TONE_HZ;                           // Constant 800 Hz!
+    // Brief, widely spaced cues at long range; stronger and faster as the
+    // obstacle approaches. Keep a minimum commanded duty so the motor starts.
+    uint8_t motorDuty = static_cast<uint8_t>(135 + proximity * 120);
+    uint16_t beepOnMs = static_cast<uint16_t>(45 + proximity * 25);
+    uint16_t beepOffMs = static_cast<uint16_t>(1200 - proximity * 980);
 
-    return { motorDuty, beepOnMs, beepOffMs, toneHz };
+    // Pulse Motor 1 only in the caution zone. It becomes continuous at 40 cm
+    // so an approaching obstacle cannot disappear between pulses.
+    uint16_t motor1OnMs = 0;
+    uint16_t motor1OffMs = 0;
+    if (distanceCm > 40.0f) {
+        float caution = (60.0f - distanceCm) / 20.0f;
+        motor1OnMs = 150;
+        motor1OffMs = static_cast<uint16_t>(700 - caution * 350);
+    }
+
+    // Motor 2 has a distinct pulse below 25 cm instead of duplicating Motor 1.
+    uint8_t motor2Duty = 0;
+    uint16_t motor2OnMs = 0;
+    uint16_t motor2OffMs = 0;
+    if (distanceCm < 25.0f) {
+        float critical = (25.0f - distanceCm) / 15.0f;
+        if (critical > 1.0f) critical = 1.0f;
+        motor2Duty = static_cast<uint8_t>(185 + critical * 70);
+        motor2OnMs = static_cast<uint16_t>(110 + critical * 50);
+        motor2OffMs = static_cast<uint16_t>(330 - critical * 170);
+    }
+
+    return {motorDuty, motor2Duty, motor1OnMs, motor1OffMs,
+            motor2OnMs, motor2OffMs, beepOnMs, beepOffMs,
+            PLEASANT_ALERT_TONE_HZ};
 }
 
 inline GroundHazardFeedback feedbackForGround(float tofDistanceCm, float baselineCm = 115.0f) {
@@ -66,7 +92,7 @@ inline uint8_t motorOutputDuty(uint8_t strength, bool activeLow) {
     return activeLow ? 255 - strength : strength;
 }
 
-class BeepEnvelope {
+class PulseEnvelope {
 public:
     bool update(uint32_t now, uint16_t onMs, uint16_t offMs, uint8_t mode) {
         if (mode == 0) {

@@ -1,6 +1,6 @@
 # Core Sensing Subsystem — ESP32-C3 SuperMini
 
-This project contains the prototype firmware for the obstacle detection and haptic feedback layer of the Intelligent Cane, targeting the ultra-compact **ESP32-C3 SuperMini** microcontroller.
+This project contains the active obstacle detection and haptic feedback firmware for the **ESP32-C3 SuperMini**.
 
 ---
 
@@ -17,10 +17,11 @@ This project contains the prototype firmware for the obstacle detection and hapt
 | | `VCC` | **5V** | 5V Power | Powers GY-521 onboard 3.3V regulator |
 | | `GND` | **GND** | 0V | Common ground |
 | | `AD0` | **GND** | 0V | Sets I2C address to `0x68` (leave empty for default) |
-| **3-Pin Vibration Motor** | `IN / Signal` | **GPIO 6** | 3.3V PWM | 200 Hz LEDC PWM to onboard driver transistor |
+| **Motor 1** | `IN / Signal` | **GPIO 6** | 3.3V PWM | Primary proximity cue, via motor driver |
+| **Motor 2** | `IN / Signal` | **GPIO 2** | 3.3V PWM | Separate close-range pulse, via motor driver |
 | | `VCC` | **5V** | 5V Power | Full power rail for maximum vibration torque |
 | | `GND` | **GND** | 0V | Common ground |
-| **Piezo Buzzer** | `(+) / Signal` | **GPIO 7** | 3.3V | Supports both Active & Passive 5V/3.3V buzzers |
+| **Buzzer** | `(+) / Signal` | **GPIO 7** | 3.3V | Active buzzer by default; passive piezo is configurable |
 | | `(-) / GND` | **GND** | 0V | Common ground |
 | **Push Button (Optional)** | Switch | **GPIO 3** | 3.3V Input | Optional / unpopulated on bench build (Internal pullup) |
 | | Return | **GND** | 0V | Ground (when button is populated) |
@@ -30,34 +31,31 @@ This project contains the prototype firmware for the obstacle detection and hapt
 
 ## Operating Logic & Feedback
 
-The motor responds only to a valid distance **strictly below 60 cm**. Tilt/fall
-state never drives the motor, and boot does not run an actuator test burst.
+Proximity cues respond only to a valid distance **strictly below 60 cm**. The
+fall state silences both motors and the buzzer. Boot does not run an actuator
+test burst; use the Serial or BLE `motor` diagnostic command when needed.
 
-| Distance | Motor PWM | Obstacle buzzer |
-|---|---|---|
-| 60 cm or farther | OFF | Silent |
-| Just below 60 cm | About 39% | Short, widely spaced beeps |
-| 40 cm | About 63% | 116 ms ON / 460 ms OFF |
-| 20 cm | About 87% | 172 ms ON / 180 ms OFF |
-| 10 cm or closer | 100% | 200 ms ON / 40 ms OFF |
-| Missing echo / invalid reading | OFF | Silent; serial reports `NO ECHO` |
+| Distance | Motor 1 | Motor 2 | Buzzer cadence |
+|---|---|---|---|
+| 60 cm or farther | Off | Off | Silent |
+| 40–60 cm | Gentle 150 ms pulses, faster as distance falls | Off | Brief chirp about every 0.8–1.2 s |
+| 25–40 cm | Continuous graded vibration | Off | Brief chirps with increasing urgency |
+| 10–25 cm | Stronger continuous vibration | Distinct short pulses | Faster, still separated chirps |
+| 10 cm or closer | Full commanded duty | 160 ms on / 160 ms off | 70 ms on / 220 ms off |
+| Missing echo / invalid reading | Off | Off | Silent; range is unknown |
 
-A missing echo means the distance is unknown, not a verified clear path.
-The existing fall detector retains its separate 200 ms ON / 200 ms OFF audible
-alarm, including beyond 60 cm. Its detection/reset behavior is otherwise unchanged.
+A missing echo means the distance is unknown, not a verified clear path. The
+fall detector's trigger and reset thresholds are unchanged.
 
 ### Match the actual modules before flashing
 
-- `MOTOR_ACTIVE_LOW = false` retains the existing active-HIGH module setting.
-  If serial shows `PWM: 0` while the module still vibrates, verify its polarity
-  and wiring; set this to `true` for an active-LOW input. Software cannot detect
-  the module polarity. Use IN on GPIO 6 with a common ground.
-- `BUZZER_IS_PASSIVE = false` selects an active buzzer. Its beep rate and ON-time
-  increase with proximity; its instantaneous loudness/pitch is hardware-fixed.
-  Set this to `true` for a passive piezo: its tone additionally rises from
-  1200 Hz toward 2800 Hz. This is an urgency ramp, not calibrated volume control.
-- Motor and passive-buzzer PWM use separate timers. Arduino-ESP32 2.x and 3.x
-  LEDC APIs are handled explicitly.
+- `MOTOR_ACTIVE_LOW = false` selects active-HIGH motor driver inputs. Verify
+  both modules' polarity on the actual cane; software cannot infer it.
+- `BUZZER_IS_PASSIVE = false` drives an active buzzer with DC on/off gating.
+  Set it to `true` for a passive piezo; its tone is held at 800 Hz. An active
+  buzzer's pitch and loudness are hardware-fixed, so software changes cadence.
+- The motors use 200 Hz PWM. A passive buzzer uses a separate LEDC timer.
+  Arduino-ESP32 2.x and 3.x APIs are handled separately.
 
 ### Verification
 
@@ -68,10 +66,10 @@ g++ -std=c++11 -Wall -Wextra -pedantic tests/proximity_feedback_test.cpp -o prox
 ./proximity_feedback_test
 ```
 
-After flashing, check 80, 60, 59, 40, 20 and 10 cm. Verify no motor output at
-60 cm or farther even when tilted. Check motor polarity against serial PWM,
-missing echoes, beep re-entry and the configured buzzer type on the real hardware.
-Host tests do not verify electrical wiring, physical motor response or sound level.
+After flashing, check 80, 60, 59, 40, 25, 20 and 10 cm. Verify Motor 1's
+caution pulses, Motor 2's close-range pulses, silence at 60 cm and during a
+fall, motor polarity, missing echoes and the configured buzzer type on the real
+hardware. Host tests cannot verify vibration strength or sound level.
 
 ---
 
@@ -103,6 +101,9 @@ pio run --target upload
 
 ## Serial Telemetry Output (115200 Baud)
 ```text
-[CANE-C3] Dist:  88.8 cm | Tilt:  0.0° | Vib:   0% (PWM:   0) | Buzzer: OFF   | Alert: CLEAR
-[CANE-C3] Dist:   5.5 cm | Tilt:  0.0° | Vib: 100% (PWM: 255) | Buzzer: ON | Alert: CRITICAL HAZARD!
+[CANE-C3] Dist: 88.8cm | ToF: 88.8cm | US:NO_ECHO | Tilt:  0.0° | Fall:0 | Vib:  0% (M1:  0/M2:  0) | Buzz:OFF | CLEAR
+[CANE-C3] Dist:  5.5cm | ToF:  5.5cm | US:12.0cm | Tilt:  0.0° | Fall:0 | Vib:100% (M1:255/M2:255) | Buzz:ON | CRITICAL HAZARD!
 ```
+
+The Motor 2 and buzzer fields reflect the instantaneous pulse phase, so they
+alternate between ON and OFF during a sustained close-range warning.

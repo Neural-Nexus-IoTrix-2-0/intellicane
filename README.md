@@ -22,11 +22,13 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 
 | Input | Firmware behavior |
 |---|---|
-| Obstacle distance >=60 cm (or >1.8m out-of-range) | Obstacle vibration (Motor 1 & 2) and proximity beeps off |
-| Obstacle distance <60 cm | Proportional dual-motor (Motor 1 & 2) PWM duty and increasing beep frequency as distance decreases |
-| Obstacle distance <=10 cm | Full dual-motor commanded duty (100%) and continuous warning tone |
+| Obstacle distance >=60 cm | Both motors and proximity buzzer off |
+| Obstacle distance 40–60 cm | Motor 1 gives gentle pulses; short buzzer chirps are widely spaced |
+| Obstacle distance 25–40 cm | Motor 1 gives continuous graded vibration; chirps become more frequent |
+| Obstacle distance <25 cm | Motor 2 adds distinct pulses; chirps accelerate as the obstacle nears |
+| Obstacle distance <=10 cm | Motor 1 reaches full commanded duty, Motor 2 pulses, and the buzzer keeps short silent gaps |
 | Pushbutton press or BLE `"describe"` | ESP32-C3 pulses GPIO 21 to trigger ESP32-CAM instant Gemini AI scene description |
-| Tilt >=65 degrees OR acceleration >=2.5 g | Fall state: motors silenced; alert buzzer tone; dispatches `FALL_STATE:1` over BLE |
+| Tilt >=65 degrees OR acceleration >=2.5 g | Fall state: motors and buzzer silenced; dispatches `FALL_STATE:1` over BLE |
 | Tilt <30 degrees or manual button press | Fall cleared; dispatches `FALL_STATE:0` over BLE and restores normal navigation |
 
 Local motor feedback is silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Dual-motor duty is smoothly modulated via 200 Hz LEDC hardware PWM (optimized for brushed DC vibration motors).
@@ -40,7 +42,7 @@ Local motor feedback is silenced during fall events to prevent user distress whi
 | **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x68) |
 | **Motor 1 (Primary Proximity)** | IN GPIO 6; 200 Hz LEDC PWM (brushed DC vibration motor) |
 | **Motor 2 (Dual Proximity)** | IN GPIO 2; 200 Hz LEDC PWM (brushed DC vibration motor) |
-| **Active Buzzer** | GPIO 7; active DC drive with proximity warning beeps and fall alarm |
+| **Active Buzzer** | GPIO 7; active DC drive with short proximity chirps, silent during a fall |
 | **Camera Trigger Line** | GPIO 21 output to ESP32-CAM GPIO 13 |
 | **ESP32-CAM Module** | OV2640 2MP Camera, powered from C3 5V/GND, Gemini AI Vision (Port 80) & Video Stream (Port 81) |
 | *(Pushbutton)* | Not connected (Trigger via Serial `c` or BLE `"describe"`; auto-reset on upright) |
@@ -72,7 +74,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32cam firmware/cam-module
 ## Implemented and verified
 
 - **Multi-Modal Complementary Sensor Fusion**: Fuses optical TOF laser ranging (millimeter-precision for narrow obstacles) and acoustic ultrasonic ranging (wide-angle reflection for glass, mesh, and wide walls). The closest hazard always takes immediate priority.
-- **Dual-Motor Tactile Feedback**: Motor 1 provides smooth progressive warning (0–60 cm); Motor 2 delivers rapid pulsing alert when obstacles enter the critical hazard zone (< 25 cm).
+- **Dual-Motor Tactile Feedback**: Motor 1 gives gentle long-range pulses followed by graded continuous vibration; Motor 2 adds a distinct pulse below 25 cm.
 - **Gemini 3.1 Flash Lite AI Vision**: On-demand scene descriptions triggered via button, BLE command, or web dashboard. Chunked transfer HTTP decoder for sub-second cloud responses.
 - **High-Speed Video Stream**: 15–25 FPS MJPEG camera server on port 81 with dynamic resolution switching.
 - **Autonomous Fall Detection**: MPU6050 impact and tilt vector tracking with instant BLE dispatch (`FALL_STATE:1`/`FALL_STATE:0`).

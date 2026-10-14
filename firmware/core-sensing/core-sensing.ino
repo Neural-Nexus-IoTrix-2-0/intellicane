@@ -15,7 +15,7 @@
  *   - Dual Haptic Vibration Motors:
  *       Motor 1 (Primary Proximity): GPIO 6 (LEDC, 200 Hz brushed DC motor PWM)
  *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC, 200 Hz brushed DC motor PWM)
- *   - Gentle Alert Buzzer:           GPIO 7 (Constant 800 Hz gentle chime, proximity-accelerated pulses)
+ *   - Alert Buzzer:                  GPIO 7 (short chirps; active DC or passive 800 Hz)
  *   - Pushbutton (Tactile Switch):   Freed / Not connected (AI triggered via Serial/BLE)
  *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
  *   - Onboard Status LED:            Freed / Not connected
@@ -48,6 +48,7 @@ constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM
 
 // Motor & Buzzer Configuration
 constexpr bool MOTOR_ACTIVE_LOW      = false;
+constexpr bool BUZZER_IS_PASSIVE     = false; // Set true only for a passive piezo.
 constexpr uint32_t MOTOR_PWM_FREQ_HZ = 200; // 200 Hz carrier frequency optimal for DC brushed vibration motors
 constexpr uint8_t MOTOR_FWD_CHANNEL  = 0;
 constexpr uint8_t MOTOR_GND_CHANNEL  = 1;
@@ -64,7 +65,9 @@ BLEServer *pBleServer = nullptr;
 BLECharacteristic *pTxCharacteristic = nullptr;
 BLECharacteristic *pRxCharacteristic = nullptr;
 
-BeepEnvelope beepEnvelope;
+PulseEnvelope beepEnvelope;
+PulseEnvelope motor1Envelope;
+PulseEnvelope motor2Envelope;
 
 // Sensor States
 Adafruit_MPU6050 mpu;
@@ -266,16 +269,21 @@ void setBuzzer(bool state, uint16_t frequencyHz) {
     static bool previousState = false;
     static uint16_t previousFrequency = 0;
     if (initialized && state == previousState &&
-        (!state || frequencyHz == previousFrequency)) return;
+        (!BUZZER_IS_PASSIVE || !state || frequencyHz == previousFrequency)) return;
     initialized = true;
     previousState = state;
     previousFrequency = frequencyHz;
 
+    if (BUZZER_IS_PASSIVE) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
+        ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
 #else
-    ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
+        ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
 #endif
+    } else {
+        // An active buzzer generates its own pitch and needs DC on/off gating.
+        digitalWrite(PIN_BUZZER, state ? HIGH : LOW);
+    }
 }
 
 // ============================================================================
@@ -485,51 +493,29 @@ void setup() {
     // 200 Hz carrier frequency optimal for miniature DC brushed vibration motors
     // (Prevents inductive choke and capacitor bypass at high frequencies)
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    bool m1Ok = ledcAttach(PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, 8);
-    bool m2Ok = ledcAttach(PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, 8);
-    bool buzzOk = ledcAttach(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8);
+    bool m1Ok = ledcAttachChannel(PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, 8, MOTOR_FWD_CHANNEL);
+    bool m2Ok = ledcAttachChannel(PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, 8, MOTOR_GND_CHANNEL);
     Serial.printf("[LEDC] Motor 1 (GPIO %d, %uHz): %s\n", PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, m1Ok ? "OK" : "FAILED");
     Serial.printf("[LEDC] Motor 2 (GPIO %d, %uHz): %s\n", PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, m2Ok ? "OK" : "FAILED");
-    Serial.printf("[LEDC] Buzzer  (GPIO %d, %uHz): %s\n", PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, buzzOk ? "OK" : "FAILED");
+    if (BUZZER_IS_PASSIVE) {
+        bool buzzOk = ledcAttachChannel(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8, BUZZER_CHANNEL);
+        Serial.printf("[LEDC] Passive buzzer (GPIO %d): %s\n", PIN_BUZZER, buzzOk ? "OK" : "FAILED");
+    }
 #else
     ledcSetup(MOTOR_FWD_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
     ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
     ledcSetup(MOTOR_GND_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
     ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
-    ledcSetup(BUZZER_CHANNEL, PLEASANT_ALERT_TONE_HZ, 8);
-    ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
+    if (BUZZER_IS_PASSIVE) {
+        ledcSetup(BUZZER_CHANNEL, PLEASANT_ALERT_TONE_HZ, 8);
+        ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
+    }
 #endif
     setMotorFwdPwm(0);
     setMotorGndPwm(0);
     setBuzzer(false);
 
-    // Startup confirmation: gentle 60ms 800 Hz chime pip
-    setBuzzer(true, PLEASANT_ALERT_TONE_HZ);
-    delay(60);
-    setBuzzer(false);
-
-    // Startup Diagnostic & Stiction Kick:
-    // 1. Spin Motor 1 (GPIO 6) solo for 200ms at full power
-    Serial.println("[HAPTIC] Boot Diagnostic: Pulse Motor 1 (GPIO 6)...");
-    setMotorFwdPwm(255);
-    delay(200);
-    setMotorFwdPwm(0);
-    delay(100);
-
-    // 2. Spin Motor 2 (GPIO 2) solo for 200ms at full power
-    Serial.println("[HAPTIC] Boot Diagnostic: Pulse Motor 2 (GPIO 2)...");
-    setMotorGndPwm(255);
-    delay(200);
-    setMotorGndPwm(0);
-    delay(100);
-
-    // 3. Both motors dual synchronous pulse (150ms)
-    Serial.println("[HAPTIC] Boot Diagnostic: Dual motors synchronized pulse...");
-    setMotorFwdPwm(200);
-    setMotorGndPwm(200);
-    delay(150);
-    setMotorFwdPwm(0);
-    setMotorGndPwm(0);
+    // Start quietly. Manual Serial/BLE motor diagnostics remain available.
 
     // Initialize I2C Bus (SDA=GPIO 4, SCL=GPIO 5)
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
@@ -695,6 +681,9 @@ void loop() {
 
     if (fallAlert) {
         // Silent fall mode on cane (no buzzer or motor to prevent user distress)
+        motor1Envelope.update(now, 0, 0, 0);
+        motor2Envelope.update(now, 0, 0, 0);
+        beepEnvelope.update(now, 0, 0, 0);
         currentMotorFwdPwm = 0;
         currentMotorGndPwm = 0;
         setMotorFwdPwm(0);
@@ -702,14 +691,25 @@ void loop() {
         buzzerState = false;
         setBuzzer(false);
     } else {
-        // --- Dual Vibration Motors: Proportional Haptic Feedback (0 to 60 cm) ---
-        // Both motors operate synchronously to provide robust tactile feedback to the user's hand
-        currentMotorFwdPwm = feedback.motorDuty;
-        currentMotorGndPwm = feedback.motorDuty;
+        // Motor 1 pulses gently at long range, then runs continuously nearby.
+        if (feedback.motor1PulseOnMs > 0) {
+            bool on = motor1Envelope.update(now, feedback.motor1PulseOnMs,
+                                            feedback.motor1PulseOffMs, 1);
+            currentMotorFwdPwm = on ? feedback.motorDuty : 0;
+        } else {
+            motor1Envelope.update(now, 0, 0, 0);
+            currentMotorFwdPwm = feedback.motorDuty;
+        }
+
+        // Motor 2 has a separate short-pulse signature below 25 cm.
+        bool motor2On = motor2Envelope.update(now, feedback.motor2PulseOnMs,
+                                               feedback.motor2PulseOffMs,
+                                               feedback.motor2Duty > 0 ? 1 : 0);
+        currentMotorGndPwm = motor2On ? feedback.motor2Duty : 0;
         setMotorFwdPwm(currentMotorFwdPwm);
         setMotorGndPwm(currentMotorGndPwm);
 
-        // --- Buzzer Audio Feedback ---
+        // Short chirps retain urgency without a near-continuous alarm.
         buzzerState = beepEnvelope.update(now, feedback.beepOnMs, feedback.beepOffMs, feedback.motorDuty > 0 ? 1 : 0);
         setBuzzer(buzzerState, feedback.toneHz);
     }
