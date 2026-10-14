@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.util.Log
+import com.example.intellicane.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -20,7 +21,7 @@ import java.util.concurrent.Executors
  * assistive spoken scene descriptions for blind and visually impaired users.
  */
 class GeminiVisionService(
-    private var apiKey: String = DEFAULT_API_KEY,
+    private var apiKey: String = BuildConfig.GEMINI_API_KEY.ifBlank { DEFAULT_API_KEY },
     private val model: String = "gemini-3.1-flash-lite"
 ) {
     companion object {

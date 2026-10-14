@@ -48,3 +48,6 @@ ai-voice-service/.env
 *.env.*.local
 *credentials.json
 google-services.json
+secrets.txt
+local.properties
+**/local.properties
