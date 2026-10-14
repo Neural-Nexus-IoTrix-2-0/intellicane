@@ -10,6 +10,19 @@ struct ProximityFeedback {
     uint16_t toneHz;
 };
 
+enum class GroundHazardType : uint8_t {
+    NONE = 0,
+    DROP_OFF = 1,  // Stairs down, curb drop, pothole, platform edge
+    STEP_UP = 2    // Curb up, low hurdle, raised threshold
+};
+
+struct GroundHazardFeedback {
+    GroundHazardType type;
+    uint8_t motorDuty;      // PWM duty for Motor 2 (0-255)
+    uint16_t pulseOnMs;
+    uint16_t pulseOffMs;
+};
+
 inline ProximityFeedback feedbackForDistance(float distanceCm) {
     // No echo, invalid readings and the 60 cm boundary must not drive the motor.
     if (!isfinite(distanceCm) || distanceCm <= 0.0f || distanceCm >= 60.0f) {
@@ -24,6 +37,23 @@ inline ProximityFeedback feedbackForDistance(float distanceCm) {
         static_cast<uint16_t>(740 - proximity * 700),
         static_cast<uint16_t>(1200 + proximity * 1600)
     };
+}
+
+inline GroundHazardFeedback feedbackForGround(float tofDistanceCm, float baselineCm = 115.0f) {
+    // If ToF distance is invalid or out of range when angled downward (> baseline + 35 cm or <= 0)
+    // it signifies the ground has dropped away (drop-off / down-stairs / pit)
+    if (!isfinite(tofDistanceCm) || tofDistanceCm <= 0.0f || tofDistanceCm > (baselineCm + 35.0f)) {
+        // Drop-off warning: Strong distinct pulsed vibration on Motor 2
+        return { GroundHazardType::DROP_OFF, 255, 180, 120 };
+    }
+
+    // Step-up / curb up (significantly closer than baseline, e.g. < baseline - 35 cm)
+    if (tofDistanceCm < (baselineCm - 35.0f) && tofDistanceCm > 15.0f) {
+        // Step-up warning: Moderate steady buzz on Motor 2
+        return { GroundHazardType::STEP_UP, 180, 400, 200 };
+    }
+
+    return { GroundHazardType::NONE, 0, 0, 0 };
 }
 
 inline uint8_t motorOutputDuty(uint8_t strength, bool activeLow) {

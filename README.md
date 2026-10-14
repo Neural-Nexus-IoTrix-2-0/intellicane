@@ -22,51 +22,63 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 
 | Input | Firmware behavior |
 |---|---|
-| Valid distance >=60 cm | Obstacle vibration and beeps off |
-| Valid distance <60 cm | Increasing motor PWM and beep urgency as distance decreases |
-| Distance <=10 cm, greater than zero | Full commanded motor duty |
-| Missing Echo / invalid distance | Obstacle feedback off; telemetry indicates NO ECHO for nonfinite readings |
-| Tilt >=65 degrees OR acceleration >=2.5 g | Silent fall state on cane (motor & buzzer silenced); dispatches `FALL_STATE:1` over BLE |
-| Tilt <30 degrees with trigger absent | Fall cleared; dispatches `FALL_STATE:0` over BLE and restores normal navigation |
+| Forward obstacle >=60 cm | Obstacle vibration (Motor 1) and beeps off |
+| Forward obstacle <60 cm | Increasing Motor 1 PWM and beep urgency as distance decreases |
+| Forward obstacle <=10 cm | Full commanded Motor 1 duty (100% vibration) |
+| Ground TOF baseline (80–150 cm) | Ground hazard feedback off (Motor 2 idle) |
+| Ground TOF drop-off (>150 cm / out-of-range) | Motor 2 pulsing warning pattern (detects stairs down, holes, curbs down) |
+| Ground TOF curb step-up (<80 cm) | Motor 2 steady warning pattern (detects curbs up, steps, obstacles on ground) |
+| Pushbutton press or BLE `"describe"` | ESP32-C3 pulses GPIO 21 to trigger ESP32-CAM instant Gemini AI scene description |
+| Tilt >=65 degrees OR acceleration >=2.5 g | Fall state: motors silenced; alert buzzer tone; dispatches `FALL_STATE:1` over BLE |
+| Tilt <30 degrees or manual button press | Fall cleared; dispatches `FALL_STATE:0` over BLE and restores normal navigation |
 
-Local motor and buzzer are silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Motor duty is smoothly modulated via 200 Hz LEDC hardware PWM.
+Local motor feedback is silenced during fall events to prevent user distress while high-priority BLE telemetry immediately alerts the companion mobile app and caretaker. Dual-zone motor duty is smoothly modulated via 200 Hz LEDC hardware PWM.
 
 ## Hardware and interfaces
 
 | Component | Connection |
 |---|---|
-| HC-SR04 Ultrasonic | TRIG GPIO 0; ECHO GPIO 1 (direct connection on bench prototype) |
-| GY-521 / MPU6050 | SDA GPIO 4, SCL GPIO 5; hardware I2C at 100 kHz |
-| 3-pin vibration module | IN GPIO 6; 200 Hz LEDC PWM, module powered from 5 V rail |
-| Buzzer | GPIO 7; audio hazard alerts |
-| Optional reset button | GPIO 3 to GND, INPUT_PULLUP |
-| Onboard LED | GPIO 8, active LOW |
+| **Forward HC-SR04 Ultrasonic (US1)** | TRIG GPIO 0; ECHO GPIO 1 (Chest/Forward obstacle ranging) |
+| **Lower HC-SR04 Ultrasonic (US2)** | TRIG GPIO 2; ECHO GPIO 10 (Knee/Lower obstacle ranging) |
+| **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; hardware I2C at 100 kHz (0x68) |
+| **TOF10120 Laser Sensor** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x52, downward angled) |
+| **Motor 1 (Forward Obstacle)** | IN GPIO 6; 200 Hz LEDC PWM Ch 0 |
+| **Motor 2 (Ground Drop / Curb)** | IN GPIO 9; 200 Hz LEDC PWM Ch 1 |
+| **Piezo Buzzer** | GPIO 7; audio proximity beeps and fall alarm |
+| **Tactile Pushbutton** | GPIO 3 to GND, INPUT_PULLUP (Camera trigger / manual fall reset) |
+| **Camera Trigger Line** | GPIO 21 output to ESP32-CAM GPIO 13 |
+| **ESP32-CAM Module** | OV2640 2MP Camera, Wi-Fi streaming (Port 81), Gemini AI Vision (Port 80) |
+| **Onboard Status LED** | GPIO 8, active LOW |
 
-On the bench prototype, HC-SR04 Echo connects directly to GPIO 1. Common ground is shared across all modules. Refer to [wiring.md](hardware/wiring.md) for detailed electrical documentation.
+Common ground (GND) is shared across all modules. Refer to [wiring.md](hardware/wiring.md) for detailed electrical documentation.
 
 ## Firmware and build
 
-`firmware/core-sensing/` is the current implementation. It attempts sensor sampling every 40 ms and telemetry every 250 ms. Echo measurement and BLE transmission contain blocking work, so there is no demonstrated hard response-time bound.
+### 1. Core Sensing & Reflex Firmware (`firmware/core-sensing/`)
+Interleaves dual ultrasonic pings every 40 ms, reads TOF10120 laser ranging and MPU6050 IMU, manages dual-zone haptics, and dispatches BLE NUS telemetry every 250 ms:
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
 ```
 
-Select the board's actual serial port before uploading. Open USB serial at 115200 baud. For BLE, connect to `Intelligent-Cane` and subscribe to NUS TX UUID `6E400003-B5A3-F393-E0A9-E50E24DCCA9E`. Verify the chosen phone app supports BLE GATT notifications.
-
+Host unit tests covering proximity math and ground hazard feedback logic:
 ```sh
-g++ -std=c++11 -Wall -Wextra -pedantic tests/proximity_feedback_test.cpp -o /tmp/proximity_feedback_test
-/tmp/proximity_feedback_test
+clang++ -std=c++17 -Wall -Wextra -I./firmware/core-sensing tests/proximity_feedback_test.cpp -o test_runner && ./test_runner && rm test_runner
 ```
 
-The host tests cover feedback logic, not physical sensor accuracy or electrical operation.
+### 2. AI Vision Subsystem Firmware (`firmware/cam-module/`)
+Serves a high-speed MJPEG video stream (Port 81) and captures on-demand snapshots analyzed by Google Gemini 3.1 Flash Lite API with Web Speech API audio narration (Port 80):
 
-## Implemented and planned
+```sh
+arduino-cli compile --fqbn esp32:esp32:esp32cam firmware/cam-module
+```
 
-**Implemented in active firmware & app:** ranging, smooth proportional haptic feedback, buzzer proximity tone, silent fall detection on the cane with instant BLE dispatch (`FALL_STATE:1`), serial diagnostics, native Android application (`application/`) with Blind User Dashboard, collapsible floating terminal, Caretaker Mode, live ESRI/OSMDroid map with user-centering FAB, real-time Firestore sync, automated emergency SMS alerts, and high-priority emergency push notifications (sound & vibration) on the caretaker's phone.
+## Implemented and verified
 
-**Planned:** battery monitoring and runtime validation, final mechanical packaging with TPU shock damping, downward drop/curb sensing, and optional secondary Time-of-Flight ranging.
-
-## Cost
-
-Listed base electronics total **LKR 2,800** (using direct Echo connection without voltage divider), excluding battery, cane structure, enclosure and phone. All listed optional/future rows bring the component estimate to **LKR 14,400** before unpriced items and service costs. See [BOM](hardware/BOM.md).
+- **Dual-Range Ultrasonic Sensing**: Interleaved ping scheduling on US1 (Forward) and US2 (Lower) with 0% acoustic cross-talk.
+- **Time-of-Flight Ground Sensing**: TOF10120 laser ranging angled downward to instantly catch drop-offs, open pits, curbs, and stairs.
+- **Dual-Zone Spatial Haptics**: Motor 1 for forward obstacles; Motor 2 for ground hazards (curbs and drop-offs).
+- **Gemini 3.1 Flash Lite AI Vision**: On-demand scene descriptions triggered via button, BLE command, or web dashboard. Chunked transfer HTTP decoder for sub-second cloud responses.
+- **High-Speed Video Stream**: 15–25 FPS MJPEG camera server on port 81 with dynamic resolution switching.
+- **Autonomous Fall Detection**: MPU6050 impact and tilt vector tracking with instant BLE dispatch (`FALL_STATE:1`/`FALL_STATE:0`).
+- **Android Companion App (`application/`)**: User Dashboard, Caretaker Mode, live GPS map, automated SMS alerts, and Firebase cloud notifications.

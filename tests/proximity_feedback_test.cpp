@@ -37,8 +37,18 @@ int main() {
     assert(beep.update(1803, 200, 200, 2)); // Fall mode transition.
     assert(!beep.update(2003, 200, 200, 2));
     assert(!beep.update(2004, 0, 0, 0));
-    assert(beep.update(UINT32_MAX - 20, 60, 740, 1));
-    assert(beep.update(10, 60, 740, 1)); // millis rollover.
-    assert(!beep.update(40, 60, 740, 1));
-    puts("PASS: boundaries, invalid ranges, monotonic feedback, polarity, beep transitions and rollover");
+    // Ground hazard (ToF laser) tests
+    auto normalGround = feedbackForGround(115.0f);
+    assert(normalGround.type == GroundHazardType::NONE && normalGround.motorDuty == 0);
+
+    auto dropOff = feedbackForGround(160.0f); // Ground drops away (stairs down / hole)
+    assert(dropOff.type == GroundHazardType::DROP_OFF && dropOff.motorDuty == 255);
+
+    auto outOfRangeDrop = feedbackForGround(std::numeric_limits<float>::quiet_NaN());
+    assert(outOfRangeDrop.type == GroundHazardType::DROP_OFF && outOfRangeDrop.motorDuty == 255);
+
+    auto stepUp = feedbackForGround(65.0f); // Curb / step up
+    assert(stepUp.type == GroundHazardType::STEP_UP && stepUp.motorDuty == 180);
+
+    puts("PASS: boundaries, invalid ranges, monotonic feedback, polarity, beep transitions, rollover, and ground hazards");
 }

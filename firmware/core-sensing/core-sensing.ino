@@ -1,15 +1,22 @@
 /**
  * ============================================================================
- * Intelligent Cane — Hardware Diagnostic & Robust Driver (ESP32-C3 SuperMini)
- * Neural-Nexus | IoTrix 2.0 (Track A Embedded IoT)
+ * IntelliCane — Advanced Multi-Sensor Core Firmware (ESP32-C3 SuperMini)
+ * Neural-Nexus | IoTrix 2.0 (Track A Embedded IoT System Development)
  * 
- * Hardware Connections (ESP32-C3 SuperMini):
- *   - HC-SR04:       TRIG -> GPIO 0, ECHO -> GPIO 1, VCC -> 5V, GND -> GND
- *   - 3-Pin Motor:   IN/SIG -> GPIO 6, VCC -> 5V, GND -> GND (Integrated driver)
- *   - Buzzer:        (+) -> GPIO 7, (-) -> GND (Supports BOTH Active & Passive buzzers)
- *   - Button:        GPIO 3 (Optional / Unconnected in bench setup; pullup active)
- *   - MPU6050:       SDA -> GPIO 4, SCL -> GPIO 5, VCC -> 5V, GND -> GND
- *   - Status LED:    Onboard Blue LED -> GPIO 8 (Active LOW)
+ * Full Hardware Integration:
+ *   - Dual Ultrasonic (HC-SR04):
+ *       US1 (Forward/Chest):  TRIG -> GPIO 0, ECHO -> GPIO 1
+ *       US2 (Lower/Ground):   TRIG -> GPIO 2, ECHO -> GPIO 10
+ *   - TOF10120 Laser ToF:    SDA -> GPIO 4, SCL -> GPIO 5 (I2C Addr 0x52)
+ *   - MPU-6050 (GY-521) IMU:  SDA -> GPIO 4, SCL -> GPIO 5 (I2C Addr 0x68)
+ *   - Dual Haptic Motors:
+ *       Motor 1 (Forward Obstacle):   GPIO 6 (LEDC Channel 0, 200 Hz)
+ *       Motor 2 (Ground / Drop-off):  GPIO 9 (LEDC Channel 1, 200 Hz)
+ *   - Piezo Buzzer:                   GPIO 7 (Hazard audio & fall alarm)
+ *   - Pushbutton (Tactile Switch):    GPIO 3 (Input Pullup; alarm reset & AI trigger)
+ *   - ESP32-CAM AI Vision Trigger:    GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
+ *   - Onboard Status LED:             GPIO 8 (Active LOW)
+ *   - Bluetooth Low Energy:           Nordic UART Service (NUS) Telemetry & Control
  * ============================================================================
  */
 
@@ -24,10 +31,33 @@
 #include <BLE2902.h>
 #include "ProximityFeedback.h"
 
-// Nordic UART Service (NUS) — Industry Standard for Bluetooth Wireless Serial
+// ============================================================================
+// Pin Definitions (ESP32-C3 SuperMini)
+// ============================================================================
+constexpr uint8_t PIN_US1_TRIG    = 0;   // Ultrasonic 1 (Forward/Chest) Trigger
+constexpr uint8_t PIN_US1_ECHO    = 1;   // Ultrasonic 1 (Forward/Chest) Echo
+constexpr uint8_t PIN_US2_TRIG    = 2;   // Ultrasonic 2 (Lower/Ground) Trigger
+constexpr uint8_t PIN_US2_ECHO    = 10;  // Ultrasonic 2 (Lower/Ground) Echo
+constexpr uint8_t PIN_BUTTON      = 3;   // Pushbutton (Input Pullup)
+constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (MPU6050 + TOF10120)
+constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (MPU6050 + TOF10120)
+constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Forward Obstacle Proximity (LEDC Ch 0)
+constexpr uint8_t PIN_BUZZER      = 7;   // Piezo Buzzer
+constexpr uint8_t PIN_LED_C3      = 8;   // Onboard LED (Active LOW)
+constexpr uint8_t PIN_MOTOR_GND   = 9;   // Motor 2: Ground Hazard / Drop-off (LEDC Ch 1)
+constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware pulse to ESP32-CAM GPIO 13
+
+// Motor & Buzzer Configuration
+constexpr bool MOTOR_ACTIVE_LOW  = false;
+constexpr bool BUZZER_IS_PASSIVE = false;
+constexpr uint8_t MOTOR_FWD_CHANNEL = 0;
+constexpr uint8_t MOTOR_GND_CHANNEL = 1;
+constexpr uint8_t BUZZER_CHANNEL    = 2;
+
+// Nordic UART Service (NUS) UUIDs
 #define NUS_SERVICE_UUID "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define NUS_TX_UUID      "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" // ESP32 -> Phone (Notify)
-#define NUS_RX_UUID      "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Phone -> ESP32 (Write)
+#define NUS_TX_UUID      "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" // ESP32 -> Phone
+#define NUS_RX_UUID      "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Phone -> ESP32
 
 bool bleClientConnected = false;
 String connectedClientMac = "";
@@ -35,13 +65,58 @@ BLEServer *pBleServer = nullptr;
 BLECharacteristic *pTxCharacteristic = nullptr;
 BLECharacteristic *pRxCharacteristic = nullptr;
 
+BeepEnvelope beepEnvelope;
+
+// Sensor States
+Adafruit_MPU6050 mpu;
+bool mpuAvailable = false;
+uint8_t mpuAddress = 0x68;
+bool mpuUsingDirectI2C = false;
+uint8_t mpuFailCount = 0;
+uint32_t lastMpuRetryMs = 0;
+
+bool tofAvailable = false;
+uint32_t lastTofRetryMs = 0;
+float tofDistanceCm = NAN;
+const float TOF_GROUND_BASELINE_CM = 115.0f; // Typical distance to ground when cane is held at 45 deg
+
+float distUs1Cm = NAN; // Forward / Chest
+float distUs2Cm = NAN; // Lower / Ground
+float tiltAngleDeg = 0.0f;
+float gMagnitude = 1.0f;
+bool fallAlert = false;
+
+uint8_t currentMotorFwdPwm = 0;
+uint8_t currentMotorGndPwm = 0;
+bool buzzerState = false;
+
+uint32_t lastSensorMs = 0;
+uint32_t lastTelemMs  = 0;
+uint8_t usCycleToggle = 0; // Alternates pinging US1 and US2 to prevent cross-talk
+
+// Forward declarations
+void blePrint(const char* msg);
+void blePrintln(const char* msg);
+void triggerCameraSnapshot();
+void setMotorFwdPwm(uint8_t duty);
+void setMotorGndPwm(uint8_t duty);
+void setBuzzer(bool state, uint16_t frequencyHz = 2000);
+float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin);
+bool readTOF10120(float &distCm);
+bool tryInitMPU(bool verbose = true);
+bool tryInitTOF(bool verbose = true);
+void scanI2C();
+
+// ============================================================================
+// BLE Callbacks & Transmitter
+// ============================================================================
 void blePrint(const char* msg) {
     if (!bleClientConnected || pTxCharacteristic == nullptr) return;
     size_t len = strlen(msg);
     size_t offset = 0;
     while (offset < len) {
         size_t chunk = len - offset;
-        if (chunk > 20) chunk = 20; // Safe chunk size across all mobile BLE stacks
+        if (chunk > 20) chunk = 20;
         pTxCharacteristic->setValue((uint8_t*)(msg + offset), chunk);
         pTxCharacteristic->notify();
         offset += chunk;
@@ -50,22 +125,28 @@ void blePrint(const char* msg) {
 }
 
 void blePrintln(const char* msg) {
-    char buf[180];
+    char buf[200];
     snprintf(buf, sizeof(buf), "%s\r\n", msg);
     blePrint(buf);
 }
-
-extern bool fallAlert;
 
 class CaneRxCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
         String rxValue = pCharacteristic->getValue();
         if (rxValue.length() > 0) {
+            String lower = rxValue;
+            lower.toLowerCase();
             Serial.printf("[BLE RX] Command received: %s\n", rxValue.c_str());
-            if (rxValue.indexOf("reset") >= 0 || rxValue.indexOf("r") >= 0) {
+
+            if (lower.indexOf("reset") >= 0 || lower == "r") {
                 fallAlert = false;
                 Serial.println("[BLE] Fall alert cleared via wireless command.");
                 blePrintln("[CANE-C3] Fall alert cleared via wireless command.");
+                blePrintln("FALL_STATE:0");
+            } else if (lower.indexOf("describe") >= 0 || lower.indexOf("cam") >= 0 || lower.indexOf("capture") >= 0) {
+                Serial.println("[BLE] AI camera capture triggered via Bluetooth command!");
+                triggerCameraSnapshot();
+                blePrintln(">>> [AI VISION] Camera capture triggered! Analyzing surroundings... <<<");
             }
         }
     }
@@ -83,24 +164,16 @@ class CaneBLECallbacks : public BLEServerCallbacks {
             BLEAddress peerAddr(desc->peer_ota_addr);
             connectedClientMac = peerAddr.toString();
         }
-        Serial.println("\n=======================================================");
-        Serial.printf("  [BLE] >>> CLIENT CONNECTED! (Peer MAC: %s) <<<\n",
-                      connectedClientMac.length() > 0 ? connectedClientMac.c_str() : "Unknown");
-        Serial.println("=======================================================\n");
-
+        Serial.printf("\n[BLE] >>> CLIENT CONNECTED! (%s) <<<\n", connectedClientMac.c_str());
         blePrintln("=======================================================");
-        blePrintln("  INTELLIGENT CANE — LIVE WIRELESS SERIAL MONITOR");
+        blePrintln("  INTELLICANE — MULTI-SENSOR WIRELESS TELEMETRY");
         blePrintln("=======================================================");
     }
 
     void onDisconnect(BLEServer* pServer, ble_gap_conn_desc *desc) override {
         bleClientConnected = false;
-        String prevMac = connectedClientMac;
         connectedClientMac = "";
-        Serial.println("\n=======================================================");
-        Serial.printf("  [BLE] <<< CLIENT DISCONNECTED (%s)! Restarting advertising... >>>\n",
-                      prevMac.length() > 0 ? prevMac.c_str() : "Unknown");
-        Serial.println("=======================================================\n");
+        Serial.println("[BLE] <<< CLIENT DISCONNECTED! Restarting advertising... >>>");
         BLEDevice::startAdvertising();
     }
 #endif
@@ -109,9 +182,7 @@ class CaneBLECallbacks : public BLEServerCallbacks {
         bleClientConnected = false;
 #if !defined(CONFIG_NIMBLE_ENABLED)
         connectedClientMac = "";
-        Serial.println("\n=======================================================");
-        Serial.println("  [BLE] <<< CLIENT DISCONNECTED! Restarting advertising... >>>");
-        Serial.println("=======================================================\n");
+        Serial.println("[BLE] <<< CLIENT DISCONNECTED! Restarting advertising... >>>");
         BLEDevice::startAdvertising();
 #endif
     }
@@ -122,24 +193,17 @@ void initBLE() {
     BLEDevice::init("Intelligent-Cane");
     BLEDevice::setMTU(256);
 
-    String localMac = BLEDevice::getAddress().toString();
-    Serial.printf("[BLE] Device Name : Intelligent-Cane\n");
-    Serial.printf("[BLE] Hardware MAC: %s\n", localMac.c_str());
-
     pBleServer = BLEDevice::createServer();
     pBleServer->setCallbacks(new CaneBLECallbacks());
 
-    // Create Nordic UART Service
     BLEService *pService = pBleServer->createService(NUS_SERVICE_UUID);
 
-    // TX Characteristic (Notify to mobile app / terminal)
     pTxCharacteristic = pService->createCharacteristic(
         NUS_TX_UUID,
         BLECharacteristic::PROPERTY_NOTIFY
     );
     pTxCharacteristic->addDescriptor(new BLE2902());
 
-    // RX Characteristic (Commands from mobile app)
     pRxCharacteristic = pService->createCharacteristic(
         NUS_RX_UUID,
         BLECharacteristic::PROPERTY_WRITE |
@@ -156,48 +220,111 @@ void initBLE() {
     pAdvertising->setMinPreferred(0x12);
     BLEDevice::startAdvertising();
 
-    Serial.println("[BLE] Wireless Serial (NUS) active. Discoverable as 'Intelligent-Cane'.");
+    Serial.println("[BLE] Wireless Serial active. Discoverable as 'Intelligent-Cane'.");
 }
 
 // ============================================================================
-// Pin Definitions (ESP32-C3 SuperMini)
+// Hardware Camera Interconnect (Triggering ESP32-CAM)
 // ============================================================================
-constexpr uint8_t PIN_US_TRIG    = 0; // Ultrasonic Trigger
-constexpr uint8_t PIN_US_ECHO    = 1; // Ultrasonic Echo
-constexpr uint8_t PIN_VIBRATION  = 6; // Vibration Motor (3-Pin Module IN)
-constexpr uint8_t PIN_BUZZER     = 7; // Piezo Buzzer (Active or Passive)
-constexpr uint8_t PIN_BUTTON     = 3; // Pushbutton (Optional - unpopulated on bench build)
-constexpr uint8_t PIN_LED_C3     = 8; // Onboard LED (Active LOW)
+void triggerCameraSnapshot() {
+    Serial.println("[INTER-MCU] Sending capture trigger pulse to ESP32-CAM (GPIO 21 -> GPIO 13)...");
+    digitalWrite(PIN_CAM_TRIG, LOW); // Active LOW trigger
+    delay(80);
+    digitalWrite(PIN_CAM_TRIG, HIGH);
+}
 
-constexpr uint8_t PIN_I2C_SDA    = 4;
-constexpr uint8_t PIN_I2C_SCL    = 5;
+// ============================================================================
+// Motor & Buzzer Outputs
+// ============================================================================
+void setMotorFwdPwm(uint8_t duty) {
+    uint8_t output = motorOutputDuty(duty, MOTOR_ACTIVE_LOW);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcWrite(PIN_MOTOR_FWD, output);
+#else
+    ledcWrite(MOTOR_FWD_CHANNEL, output);
+#endif
+}
 
-// Motor Polarity Configuration
-// Set to true if your 3-pin vibration module is Active-LOW (vibrates when input is LOW)
-constexpr bool MOTOR_ACTIVE_LOW  = false;
-// Active buzzer: DC on/off. Passive piezo: dedicated audio-frequency PWM.
-constexpr bool BUZZER_IS_PASSIVE = false;
-constexpr uint8_t MOTOR_CHANNEL = 0;
-constexpr uint8_t BUZZER_CHANNEL = 2; // Separate timer from motor on ESP32-C3.
-BeepEnvelope beepEnvelope;
+void setMotorGndPwm(uint8_t duty) {
+    uint8_t output = motorOutputDuty(duty, MOTOR_ACTIVE_LOW);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcWrite(PIN_MOTOR_GND, output);
+#else
+    ledcWrite(MOTOR_GND_CHANNEL, output);
+#endif
+}
 
-Adafruit_MPU6050 mpu;
-bool mpuAvailable = false;
-uint8_t mpuAddress = 0;
-bool mpuUsingDirectI2C = false;
-uint8_t mpuFailCount = 0;
-uint32_t lastMpuRetryMs = 0;
+void setBuzzer(bool state, uint16_t frequencyHz) {
+    static bool initialized = false;
+    static bool previousState = false;
+    static uint16_t previousFrequency = 0;
+    if (initialized && state == previousState &&
+        (!BUZZER_IS_PASSIVE || !state || frequencyHz == previousFrequency)) return;
+    initialized = true;
+    previousState = state;
+    previousFrequency = frequencyHz;
 
-float distanceCm = NAN;
-float tiltAngleDeg = 0.0f;
-float gMagnitude = 1.0f;
-bool fallAlert = false;
-uint8_t currentMotorPwm = 0;
+    if (BUZZER_IS_PASSIVE) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+        ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
+#else
+        ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
+#endif
+    } else {
+        digitalWrite(PIN_BUZZER, state ? HIGH : LOW);
+    }
+}
 
-uint32_t lastSensorMs = 0;
-uint32_t lastTelemMs  = 0;
-bool buzzerState = false;
+// ============================================================================
+// Ultrasonic Ranging Helper
+// ============================================================================
+float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin) {
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
 
+    unsigned long durationUs = pulseIn(echoPin, HIGH, 26000);
+    if (durationUs == 0) return NAN;
+    return (float)durationUs * 0.0343f / 2.0f;
+}
+
+// ============================================================================
+// TOF10120 Time-of-Flight Laser Sensor (I2C Addr 0x52)
+// ============================================================================
+bool readTOF10120(float &distCm) {
+    if (!tofAvailable) return false;
+
+    Wire.beginTransmission(0x52);
+    Wire.write(0x00);
+    if (Wire.endTransmission(false) != 0) return false;
+
+    if (Wire.requestFrom((uint8_t)0x52, (uint8_t)2) != 2) return false;
+
+    uint16_t distMm = (Wire.read() << 8) | Wire.read();
+    if (distMm == 0 || distMm > 2000) {
+        distCm = 200.0f; // Saturated or out-of-range (indicates floor drop-off)
+    } else {
+        distCm = (float)distMm / 10.0f;
+    }
+    return true;
+}
+
+bool tryInitTOF(bool verbose) {
+    Wire.beginTransmission(0x52);
+    if (Wire.endTransmission() == 0) {
+        tofAvailable = true;
+        if (verbose) Serial.println("[TOF] TOF10120 Laser Distance Sensor detected at I2C 0x52!");
+        return true;
+    }
+    tofAvailable = false;
+    return false;
+}
+
+// ============================================================================
+// MPU6050 Motion & Fall IMU
+// ============================================================================
 uint8_t readReg8(uint8_t addr, uint8_t reg) {
     Wire.beginTransmission(addr);
     Wire.write(reg);
@@ -213,77 +340,7 @@ bool writeReg8(uint8_t addr, uint8_t reg, uint8_t val) {
     return (Wire.endTransmission() == 0);
 }
 
-uint8_t activeSda = PIN_I2C_SDA; // default 4
-uint8_t activeScl = PIN_I2C_SCL; // default 5
-
-bool probePinPair(uint8_t sda, uint8_t scl) {
-    Wire.end();
-    pinMode(sda, INPUT_PULLUP);
-    pinMode(scl, INPUT_PULLUP);
-    Wire.begin(sda, scl);
-    Wire.setClock(100000);
-    Wire.setTimeOut(30);
-
-    for (uint8_t addr = 0x68; addr <= 0x69; addr++) {
-        Wire.beginTransmission(addr);
-        if (Wire.endTransmission() == 0) {
-            activeSda = sda;
-            activeScl = scl;
-            return true;
-        }
-    }
-    return false;
-}
-
-void autoDetectI2CPins() {
-    if (probePinPair(activeSda, activeScl)) return;
-    if (probePinPair(5, 4)) {
-        Serial.println("[I2C] Auto-detect: Found MPU on swapped pins (SDA=GPIO 5, SCL=GPIO 4)!");
-        return;
-    }
-    if (probePinPair(8, 9)) {
-        Serial.println("[I2C] Auto-detect: Found MPU on hardware default pins (SDA=GPIO 8, SCL=GPIO 9)!");
-        return;
-    }
-    if (probePinPair(9, 8)) {
-        Serial.println("[I2C] Auto-detect: Found MPU on hardware default pins (SDA=GPIO 9, SCL=GPIO 8)!");
-        return;
-    }
-    if (probePinPair(2, 3)) {
-        Serial.println("[I2C] Auto-detect: Found MPU on pins (SDA=GPIO 2, SCL=GPIO 3)!");
-        return;
-    }
-    if (probePinPair(20, 21)) {
-        Serial.println("[I2C] Auto-detect: Found MPU on pins (SDA=GPIO 20, SCL=GPIO 21)!");
-        return;
-    }
-    probePinPair(PIN_I2C_SDA, PIN_I2C_SCL);
-}
-
-void scanI2C() {
-    autoDetectI2CPins();
-    Serial.printf("[I2C] Scanning I2C bus (SDA=GPIO %d, SCL=GPIO %d)...\n", activeSda, activeScl);
-    uint8_t count = 0;
-    for (uint8_t addr = 1; addr < 127; addr++) {
-        Wire.beginTransmission(addr);
-        if (Wire.endTransmission() == 0) {
-            uint8_t who = readReg8(addr, 0x75);
-            Serial.printf("[I2C] -> Found device at 0x%02X (WHO_AM_I = 0x%02X)\n", addr, who);
-            count++;
-        }
-    }
-    if (count == 0) {
-        Serial.println("[I2C] -> WARNING: No I2C devices found on tested pins!");
-        Serial.println("       1. Check GY-521 LED: Is the small red power LED on the sensor lit?");
-        Serial.println("       2. Power: Connect GY-521 VCC -> 5V on ESP32-C3 (3.3V can cause undervoltage).");
-        Serial.println("       3. Ground: Connect GY-521 GND -> GND.");
-        Serial.println("       4. Data: Connect GY-521 SDA -> GPIO 4, SCL -> GPIO 5.");
-        Serial.println("       5. Address: Connect GY-521 AD0 -> GND (sets address 0x68).");
-    }
-}
-
-bool tryInitMPU(bool verbose = true) {
-    autoDetectI2CPins();
+bool tryInitMPU(bool verbose) {
     uint8_t targetAddr = 0;
     Wire.beginTransmission(0x68);
     if (Wire.endTransmission() == 0) targetAddr = 0x68;
@@ -298,30 +355,22 @@ bool tryInitMPU(bool verbose = true) {
     }
 
     mpuAddress = targetAddr;
-    uint8_t who = readReg8(targetAddr, 0x75);
-    if (verbose) {
-        Serial.printf("[MPU] Found chip at 0x%02X (WHO_AM_I = 0x%02X)\n", targetAddr, who);
-    }
-
-    // Try Adafruit driver first
     if (mpu.begin(targetAddr, &Wire)) {
         mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
         mpuAvailable = true;
         mpuUsingDirectI2C = false;
-        if (verbose) Serial.println("[MPU] Initialized via Adafruit MPU6050 driver!");
+        if (verbose) Serial.printf("[MPU] Initialized at 0x%02X via Adafruit driver.\n", targetAddr);
         return true;
     }
 
-    // Direct register fallback (supports MPU-6500, MPU-9250, and clone ICs rejected by Adafruit)
-    if (verbose) Serial.println("[MPU] Adafruit driver rejected ID. Initializing direct register driver...");
-    writeReg8(targetAddr, 0x6B, 0x00); // Wake up chip (clear SLEEP bit)
+    // Direct register fallback
+    writeReg8(targetAddr, 0x6B, 0x00);
     delay(10);
-    writeReg8(targetAddr, 0x1C, 0x10); // Accel range +/- 8g
+    writeReg8(targetAddr, 0x1C, 0x10);
     delay(10);
-
     mpuAvailable = true;
     mpuUsingDirectI2C = true;
-    if (verbose) Serial.println("[MPU] Direct register driver active and ready!");
+    if (verbose) Serial.printf("[MPU] Initialized at 0x%02X via direct registers.\n", targetAddr);
     return true;
 }
 
@@ -340,7 +389,7 @@ bool readMPUAccel(float &ax, float &ay, float &az) {
     }
 
     Wire.beginTransmission(mpuAddress);
-    Wire.write(0x3B); // ACCEL_XOUT_H
+    Wire.write(0x3B);
     if (Wire.endTransmission(false) != 0) return false;
     if (Wire.requestFrom((uint8_t)mpuAddress, (uint8_t)6) != 6) return false;
 
@@ -355,126 +404,145 @@ bool readMPUAccel(float &ax, float &ay, float &az) {
     return true;
 }
 
-void setMotorPwm(uint8_t duty) {
-    uint8_t output = motorOutputDuty(duty, MOTOR_ACTIVE_LOW);
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWrite(PIN_VIBRATION, output);
-#else
-    ledcWrite(MOTOR_CHANNEL, output);
-#endif
-}
-
-void setBuzzer(bool state, uint16_t frequencyHz = 2000) {
-    static bool initialized = false;
-    static bool previousState = false;
-    static uint16_t previousFrequency = 0;
-    if (initialized && state == previousState &&
-        (!BUZZER_IS_PASSIVE || !state || frequencyHz == previousFrequency)) return;
-    initialized = true;
-    previousState = state;
-    previousFrequency = frequencyHz;
-    if (BUZZER_IS_PASSIVE) {
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
-#else
-        ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
-#endif
-    } else {
-        digitalWrite(PIN_BUZZER, state ? HIGH : LOW);
+void scanI2C() {
+    Serial.println("[I2C] Scanning I2C bus (SDA=GPIO 4, SCL=GPIO 5)...");
+    uint8_t count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            Serial.printf("[I2C] -> Found device at address 0x%02X\n", addr);
+            count++;
+        }
+    }
+    if (count == 0) {
+        Serial.println("[I2C] WARNING: No I2C devices found on bus.");
     }
 }
 
-// Measure HC-SR04 distance
-float readDistanceCm() {
-    digitalWrite(PIN_US_TRIG, LOW);
-    delayMicroseconds(2);
-    digitalWrite(PIN_US_TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(PIN_US_TRIG, LOW);
-
-    unsigned long durationUs = pulseIn(PIN_US_ECHO, HIGH, 26000);
-    if (durationUs == 0) return NAN; // Unknown range, not a measured clear path.
-    return (float)durationUs * 0.0343f / 2.0f;
-}
-
+// ============================================================================
+// Setup
+// ============================================================================
 void setup() {
-    // Establish the module's OFF level before boot delays.
-    digitalWrite(PIN_VIBRATION, MOTOR_ACTIVE_LOW ? HIGH : LOW);
-    pinMode(PIN_VIBRATION, OUTPUT);
-    digitalWrite(PIN_VIBRATION, MOTOR_ACTIVE_LOW ? HIGH : LOW);
+    // Motor initial off levels
+    pinMode(PIN_MOTOR_FWD, OUTPUT);
+    pinMode(PIN_MOTOR_GND, OUTPUT);
+    digitalWrite(PIN_MOTOR_FWD, MOTOR_ACTIVE_LOW ? HIGH : LOW);
+    digitalWrite(PIN_MOTOR_GND, MOTOR_ACTIVE_LOW ? HIGH : LOW);
+
+    // Camera Trigger line (Default HIGH)
+    pinMode(PIN_CAM_TRIG, OUTPUT);
+    digitalWrite(PIN_CAM_TRIG, HIGH);
+
+    pinMode(PIN_BUTTON, INPUT_PULLUP);
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, LOW);
+    pinMode(PIN_LED_C3, OUTPUT);
+    digitalWrite(PIN_LED_C3, HIGH); // Off
+
+    // Ultrasonic Pins
+    pinMode(PIN_US1_TRIG, OUTPUT);
+    pinMode(PIN_US1_ECHO, INPUT);
+    pinMode(PIN_US2_TRIG, OUTPUT);
+    pinMode(PIN_US2_ECHO, INPUT);
+    digitalWrite(PIN_US1_TRIG, LOW);
+    digitalWrite(PIN_US2_TRIG, LOW);
+
     Serial.begin(115200);
     delay(500);
 
     Serial.println("\n=======================================================");
-    Serial.println("  INTELLIGENT CANE — HARDWARE TEST & FIRMWARE (C3)");
+    Serial.println("  INTELLICANE — ADVANCED MULTI-SENSOR SYSTEM (C3)     ");
     Serial.println("=======================================================");
 
-    // Pin configurations
-    pinMode(PIN_US_TRIG, OUTPUT);
-    pinMode(PIN_US_ECHO, INPUT);
-    pinMode(PIN_BUZZER, OUTPUT);
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
-    pinMode(PIN_LED_C3, OUTPUT);
-
-    digitalWrite(PIN_US_TRIG, LOW);
-    digitalWrite(PIN_BUZZER, LOW);
-    digitalWrite(PIN_LED_C3, HIGH); // OFF
-
-    // Dedicated channels keep passive-buzzer pitch changes away from motor PWM.
+    // Configure LEDC PWM Channels
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcAttachChannel(PIN_VIBRATION, 200, 8, MOTOR_CHANNEL);
+    ledcAttachChannel(PIN_MOTOR_FWD, 200, 8, MOTOR_FWD_CHANNEL);
+    ledcAttachChannel(PIN_MOTOR_GND, 200, 8, MOTOR_GND_CHANNEL);
     if (BUZZER_IS_PASSIVE) ledcAttachChannel(PIN_BUZZER, 2000, 8, BUZZER_CHANNEL);
 #else
-    ledcSetup(MOTOR_CHANNEL, 200, 8);
-    ledcAttachPin(PIN_VIBRATION, MOTOR_CHANNEL);
+    ledcSetup(MOTOR_FWD_CHANNEL, 200, 8);
+    ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
+    ledcSetup(MOTOR_GND_CHANNEL, 200, 8);
+    ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
     if (BUZZER_IS_PASSIVE) {
         ledcSetup(BUZZER_CHANNEL, 2000, 8);
         ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
     }
 #endif
-    setMotorPwm(0);
+    setMotorFwdPwm(0);
+    setMotorGndPwm(0);
     setBuzzer(false);
 
-    // Initialize I2C bus
-    pinMode(PIN_I2C_SDA, INPUT_PULLUP);
-    pinMode(PIN_I2C_SCL, INPUT_PULLUP);
+    // Initialize I2C Bus
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Wire.setClock(100000);
-    Wire.setTimeOut(50); // Prevent bus lockup
+    Wire.setTimeOut(40);
 
-    // Perform diagnostic I2C bus scan and initialize MPU
     scanI2C();
-    if (!tryInitMPU(true)) {
-        Serial.println("[System] WARNING: MPU6050 not detected. Auto-reconnect active in background...");
-    }
+    tryInitMPU(true);
+    tryInitTOF(true);
 
-    // Initialize BLE Server
     initBLE();
 
-    Serial.println("\n[System] Initialization complete. Running live obstacle loop...\n");
+    Serial.println("\n[System] All modules configured. Running intelligent cane loop...\n");
 }
 
+// ============================================================================
+// Main Loop
+// ============================================================================
 void loop() {
     uint32_t now = millis();
 
     // ------------------------------------------------------------------------
-    // 1. Read Sensors every 40ms
+    // 1. Read Sensors every 35 ms
     // ------------------------------------------------------------------------
-    if (now - lastSensorMs >= 40) {
+    if (now - lastSensorMs >= 35) {
         lastSensorMs = now;
-        distanceCm = readDistanceCm();
 
-        // Pushbutton: resets fall alarm
-        if (digitalRead(PIN_BUTTON) == LOW && fallAlert) {
-            fallAlert = false;
-            Serial.println("[Button] Alarm cleared.");
-            if (bleClientConnected) {
-                blePrintln(">>> [BUTTON: ALARM CLEARED] Fall reset via button <<<");
-                blePrintln("FALL_STATE:0");
+        // Alternate Ultrasonic pings to completely eliminate sonic cross-talk
+        if (usCycleToggle == 0) {
+            distUs1Cm = readUltrasonicCm(PIN_US1_TRIG, PIN_US1_ECHO);
+            usCycleToggle = 1;
+        } else {
+            distUs2Cm = readUltrasonicCm(PIN_US2_TRIG, PIN_US2_ECHO);
+            usCycleToggle = 0;
+        }
+
+        // Read TOF10120 Laser Distance Sensor (I2C)
+        if (tofAvailable) {
+            float tDist = NAN;
+            if (readTOF10120(tDist)) {
+                tofDistanceCm = tDist;
             }
         }
 
-        // MPU Read
+        // Pushbutton Monitor: Short click resets alarm; Pressing button also triggers AI camera
+        static uint32_t buttonPressStart = 0;
+        static bool lastButtonState = HIGH;
+        bool btnState = digitalRead(PIN_BUTTON);
+
+        if (btnState == LOW && lastButtonState == HIGH) {
+            buttonPressStart = now;
+        } else if (btnState == HIGH && lastButtonState == LOW) {
+            uint32_t pressDuration = now - buttonPressStart;
+            if (fallAlert) {
+                fallAlert = false;
+                Serial.println("[Button] Fall alarm reset.");
+                if (bleClientConnected) {
+                    blePrintln(">>> [BUTTON: ALARM CLEARED] Fall reset via button <<<");
+                    blePrintln("FALL_STATE:0");
+                }
+            } else if (pressDuration > 40) {
+                Serial.println("[Button] AI Camera scene description requested via cane button!");
+                triggerCameraSnapshot();
+                if (bleClientConnected) {
+                    blePrintln(">>> [AI VISION] Cane button clicked! Triggering camera snapshot... <<<");
+                }
+            }
+        }
+        lastButtonState = btnState;
+
+        // MPU6050 Motion & Fall Monitoring
         if (mpuAvailable) {
             float ax = 0, ay = 0, az = 0;
             if (readMPUAccel(ax, ay, az)) {
@@ -502,20 +570,20 @@ void loop() {
             }
         }
 
-        // Check for fall state transition and dispatch instant BLE notification
+        // Fall State Transition Dispatch over BLE
         static bool previousFallState = false;
         if (fallAlert != previousFallState) {
             previousFallState = fallAlert;
             if (fallAlert) {
-                Serial.printf("\n[FALL] >>> FALL ALARM TRIGGERED! Tilt: %.1f deg | Force: %.2f g <<<\n\n", tiltAngleDeg, gMagnitude);
+                Serial.printf("\n[FALL] >>> FALL ALARM! Tilt: %.1f deg | Impact: %.2f g <<<\n\n", tiltAngleDeg, gMagnitude);
                 if (bleClientConnected) {
                     char fallMsg[96];
-                    snprintf(fallMsg, sizeof(fallMsg), "!!! [ALERT: FALL DETECTED!] Tilt: %.1f deg | Impact: %.2f g !!!", tiltAngleDeg, gMagnitude);
+                    snprintf(fallMsg, sizeof(fallMsg), "!!! [ALERT: FALL DETECTED!] Tilt: %.1f deg | Force: %.2f g !!!", tiltAngleDeg, gMagnitude);
                     blePrintln(fallMsg);
                     blePrintln("FALL_STATE:1");
                 }
             } else {
-                Serial.println("\n[FALL] <<< CANE RESTORED UPRIGHT / FALL CLEARED >>>\n");
+                Serial.println("\n[FALL] <<< CANE UPRIGHT / FALL CLEARED >>>\n");
                 if (bleClientConnected) {
                     blePrintln(">>> [ALERT: CANE RESTORED UPRIGHT] Fall Cleared <<<");
                     blePrintln("FALL_STATE:0");
@@ -524,85 +592,116 @@ void loop() {
         }
     }
 
-    // Background auto-reconnect if MPU was disconnected or unready at boot
+    // Auto-reconnect background retry for I2C modules
     if (!mpuAvailable && (now - lastMpuRetryMs >= 2000)) {
         lastMpuRetryMs = now;
-        if (tryInitMPU(false)) {
-            Serial.println("\n[MPU] >>> MPU6050 RECONNECTED SUCCESSFULLY! <<<\n");
-        }
+        tryInitMPU(false);
     }
-
-    // Refresh time after blocking sensor reads.
-    now = millis();
-    const ProximityFeedback feedback = feedbackForDistance(distanceCm);
-
-    if (fallAlert) {
-        // Fall detected: Silent emergency mode on the cane (no haptic buzz or buzzer alarm).
-        // The cane remains quiet to avoid user distress; notifications are dispatched via BLE to the caretaker app.
-        currentMotorPwm = 0;
-        setMotorPwm(0);
-        buzzerState = false;
-        setBuzzer(false);
-        // Visual indicator on the board stays active to show emergency state
-        digitalWrite(PIN_LED_C3, LOW);
-    } else {
-        // Normal navigation: obstacle proximity feedback
-        currentMotorPwm = feedback.motorDuty;
-        setMotorPwm(currentMotorPwm);
-        buzzerState = beepEnvelope.update(now, feedback.beepOnMs, feedback.beepOffMs, feedback.motorDuty > 0 ? 1 : 0);
-        setBuzzer(buzzerState, feedback.toneHz);
-        digitalWrite(PIN_LED_C3, (currentMotorPwm > 0 || buzzerState) ? LOW : HIGH);
+    if (!tofAvailable && (now - lastTofRetryMs >= 3000)) {
+        lastTofRetryMs = now;
+        tryInitTOF(false);
     }
 
     // ------------------------------------------------------------------------
-    // 4. Telemetry Stream every 250ms
+    // 2. Dual-Zone Haptic & Audio Feedback Arbitration
+    // ------------------------------------------------------------------------
+    now = millis();
+
+    // Determine closest forward obstacle from both ultrasonic sensors
+    float minFwdDistance = distUs1Cm;
+    if (isfinite(distUs2Cm) && distUs2Cm > 0.0f) {
+        if (!isfinite(minFwdDistance) || distUs2Cm < minFwdDistance) {
+            minFwdDistance = distUs2Cm;
+        }
+    }
+
+    const ProximityFeedback fwdFeedback = feedbackForDistance(minFwdDistance);
+    const GroundHazardFeedback gndFeedback = feedbackForGround(tofDistanceCm, TOF_GROUND_BASELINE_CM);
+
+    if (fallAlert) {
+        // Silent fall mode on cane (no buzzer or motor to prevent user distress)
+        currentMotorFwdPwm = 0;
+        currentMotorGndPwm = 0;
+        setMotorFwdPwm(0);
+        setMotorGndPwm(0);
+        buzzerState = false;
+        setBuzzer(false);
+        digitalWrite(PIN_LED_C3, LOW); // LED active indicates emergency
+    } else {
+        // --- Forward Obstacle Haptics (Motor 1) ---
+        currentMotorFwdPwm = fwdFeedback.motorDuty;
+        setMotorFwdPwm(currentMotorFwdPwm);
+
+        // --- Ground Hazard / Drop-off Haptics (Motor 2) ---
+        if (gndFeedback.type == GroundHazardType::DROP_OFF) {
+            // Rhythmic warning pulse on Motor 2 for drop-off/stairs down
+            static bool gndPulseState = false;
+            static uint32_t lastGndPulseMs = 0;
+            uint32_t interval = gndPulseState ? gndFeedback.pulseOnMs : gndFeedback.pulseOffMs;
+            if (now - lastGndPulseMs >= interval) {
+                lastGndPulseMs = now;
+                gndPulseState = !gndPulseState;
+            }
+            currentMotorGndPwm = gndPulseState ? gndFeedback.motorDuty : 0;
+            setMotorGndPwm(currentMotorGndPwm);
+        } else if (gndFeedback.type == GroundHazardType::STEP_UP) {
+            currentMotorGndPwm = gndFeedback.motorDuty;
+            setMotorGndPwm(currentMotorGndPwm);
+        } else {
+            currentMotorGndPwm = 0;
+            setMotorGndPwm(0);
+        }
+
+        // --- Buzzer Audio Feedback ---
+        // Beeps if forward obstacle is in range or if severe drop-off detected
+        uint8_t buzzMode = (fwdFeedback.motorDuty > 0) ? 1 : (gndFeedback.type == GroundHazardType::DROP_OFF ? 2 : 0);
+        uint16_t onTime  = (buzzMode == 2) ? 150 : fwdFeedback.beepOnMs;
+        uint16_t offTime = (buzzMode == 2) ? 150 : fwdFeedback.beepOffMs;
+        uint16_t pitch   = (buzzMode == 2) ? 2800 : fwdFeedback.toneHz;
+
+        buzzerState = beepEnvelope.update(now, onTime, offTime, buzzMode);
+        setBuzzer(buzzerState, pitch);
+
+        digitalWrite(PIN_LED_C3, (currentMotorFwdPwm > 0 || currentMotorGndPwm > 0 || buzzerState) ? LOW : HIGH);
+    }
+
+    // ------------------------------------------------------------------------
+    // 3. Telemetry Stream every 250 ms (USB Serial & BLE NUS)
     // ------------------------------------------------------------------------
     if (now - lastTelemMs >= 250) {
         lastTelemMs = now;
 
         const char* alertMsg = "CLEAR";
         if (fallAlert) alertMsg = "FALL ALARM!";
-        else if (!isfinite(distanceCm)) alertMsg = "NO ECHO";
-        else if (distanceCm <= 10.0f) alertMsg = "CRITICAL HAZARD!";
-        else if (distanceCm <= 30.0f) alertMsg = "WARNING";
-        else if (distanceCm < 60.0f) alertMsg = "CAUTION";
-
-        uint8_t vibPercent = (uint8_t)((currentMotorPwm / 255.0f) * 100.0f);
+        else if (gndFeedback.type == GroundHazardType::DROP_OFF) alertMsg = "DROP-OFF HAZARD!";
+        else if (gndFeedback.type == GroundHazardType::STEP_UP) alertMsg = "CURB / STEP-UP";
+        else if (!isfinite(minFwdDistance)) alertMsg = "NO ECHO";
+        else if (minFwdDistance <= 10.0f) alertMsg = "CRITICAL HAZARD!";
+        else if (minFwdDistance <= 30.0f) alertMsg = "WARNING";
+        else if (minFwdDistance < 60.0f) alertMsg = "CAUTION";
 
         char tiltBuf[16];
-        if (mpuAvailable) {
-            snprintf(tiltBuf, sizeof(tiltBuf), "%5.1f°", tiltAngleDeg);
-        } else {
-            snprintf(tiltBuf, sizeof(tiltBuf), "NO_MPU");
-        }
+        if (mpuAvailable) snprintf(tiltBuf, sizeof(tiltBuf), "%5.1f°", tiltAngleDeg);
+        else snprintf(tiltBuf, sizeof(tiltBuf), "NO_MPU");
 
-        char bleStatusBuf[40];
-        if (bleClientConnected) {
-            if (connectedClientMac.length() > 0) {
-                snprintf(bleStatusBuf, sizeof(bleStatusBuf), "CONN [%s]", connectedClientMac.c_str());
-            } else {
-                snprintf(bleStatusBuf, sizeof(bleStatusBuf), "CONNECTED");
-            }
-        } else {
-            snprintf(bleStatusBuf, sizeof(bleStatusBuf), "ADVERTISING");
-        }
+        char tofBuf[16];
+        if (tofAvailable && isfinite(tofDistanceCm)) snprintf(tofBuf, sizeof(tofBuf), "%5.1fcm", tofDistanceCm);
+        else snprintf(tofBuf, sizeof(tofBuf), "NO_TOF");
 
-        char telemLine[180];
+        char telemLine[210];
         snprintf(telemLine, sizeof(telemLine),
-                 "[CANE-C3] Dist: %5.1f cm | Tilt: %s | Fall: %d | Vib: %3d%% (PWM: %3d) | Buzz: %s | BLE: %-20s | Alert: %s",
-                 distanceCm,
+                 "[CANE] US1:%4.1fcm | US2:%4.1fcm | ToF:%s | Tilt:%s | Fall:%d | M1:%3d | M2:%3d | %s",
+                 distUs1Cm,
+                 distUs2Cm,
+                 tofBuf,
                  tiltBuf,
                  fallAlert ? 1 : 0,
-                 vibPercent,
-                 currentMotorPwm,
-                 buzzerState ? "ON" : "OFF",
-                 bleStatusBuf,
+                 currentMotorFwdPwm,
+                 currentMotorGndPwm,
                  alertMsg);
 
-        // Output to USB Hardware Serial Monitor
         Serial.println(telemLine);
 
-        // Stream identical line to connected Bluetooth client
         if (bleClientConnected) {
             blePrintln(telemLine);
         }
