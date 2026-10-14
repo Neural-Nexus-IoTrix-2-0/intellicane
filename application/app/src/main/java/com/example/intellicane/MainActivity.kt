@@ -125,7 +125,7 @@ class MainActivity : AppCompatActivity() {
     // Bluetooth
     private var bluetoothGatt: BluetoothGatt? = null
     private var isConnected = false
-    private val targetMacAddress = "48:F6:EE:17:C3:42"
+    private val targetMacAddress = "48:F6:EE:17:C1:78"
     private val bleBuffer = StringBuilder()
 
     private val cccDescriptorUuid: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
     private var pairedPresenceRef: DatabaseReference? = null
     private var pairedPresenceListener: ValueEventListener? = null
     private var pairedLocationRegistration: ListenerRegistration? = null
-    private var lastFallAlertNotified = false
+    private var lastFallAlertTimestamp: Long = 0L
     private var isCaretakerFallAlertActive = false
 
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -1004,8 +1004,9 @@ class MainActivity : AppCompatActivity() {
                     isCaretakerFallAlertActive = true
                     tvUserPresenceStatus.text = "⚠️ EMERGENCY: Cane Fall Detected!"
                     tvUserPresenceStatus.setTextColor(Color.RED)
-                    if (!lastFallAlertNotified) {
-                        lastFallAlertNotified = true
+                    val nowMillis = System.currentTimeMillis()
+                    if (nowMillis - lastFallAlertTimestamp > 20000L) { // 20-second cooldown
+                        lastFallAlertTimestamp = nowMillis
                         showFallAlertNotification(
                             "⚠️ EMERGENCY: Fall Detected!",
                             "IntelliCane user fall detected! Please check on the user immediately."
@@ -1017,7 +1018,7 @@ class MainActivity : AppCompatActivity() {
                         tvUserPresenceStatus.text = "Presence: Cane Upright (Active)"
                         tvUserPresenceStatus.setTextColor(Color.parseColor("#4CAF50"))
                     }
-                    lastFallAlertNotified = false
+                    lastFallAlertTimestamp = 0L
                 }
 
                 val isSharing = snapshot.getBoolean("sharing") ?: false
@@ -1133,7 +1134,7 @@ class MainActivity : AppCompatActivity() {
         pairedPresenceListener = null
         pairedPresenceRef = null
         pairedLocationRegistration = null
-        lastFallAlertNotified = false
+        lastFallAlertTimestamp = 0L
         isCaretakerFallAlertActive = false
     }
 
