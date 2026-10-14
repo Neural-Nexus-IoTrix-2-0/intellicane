@@ -56,17 +56,21 @@ This document details the active electrical wiring for the Intelligent Cane prot
 1. **Power Supply**:
    - Power both MCUs, TOF10120, and vibration motor modules from a regulated **5V source** (e.g. 5V rail or power bank) capable of delivering at least **1.5A–2.0A peak** (ESP32-CAM Wi-Fi bursts draw up to 500mA).
 2. **I2C Bus (GPIO 4 SDA, GPIO 5 SCL)**:
-   - **TOF10120 Laser Distance Sensor (I2C Addr `0x52`)**:
-     - `VCC` -> 3.3V or 5V (accepts 3.0V to 5.0V)
-     - `GND` -> GND
-     - `SDA` -> ESP32-C3 GPIO 4
-     - `SCL` -> ESP32-C3 GPIO 5
+   - **TOF10120 Laser Distance Sensor (I2C Addr `0x52`) Wire Harness**:
+     | Wire Color | Pin Label | Function | Connect to ESP32-C3 / Power |
+     |:---|:---|:---|:---|
+     | **Black** | `GND` | Ground | System **GND** |
+     | **Red** | `VDD / VCC` | Power (3.3V–5V) | **3.3V** (or 5V rail) |
+     | **Yellow** | `RXD` | UART Receive | *Leave Disconnected* (I2C mode) |
+     | **White** | `TXD` | UART Transmit | *Leave Disconnected* (I2C mode) |
+     | **Blue** | `SDA` | I2C Serial Data | **GPIO 4** (Shared I2C SDA) |
+     | **Green** | `SCL` | I2C Serial Clock | **GPIO 5** (Shared I2C SCL) |
    - **MPU6050 Motion IMU (I2C Addr `0x68`)**:
      - `VCC` -> 3.3V (or 5V if GY-521 board with 3.3V LDO)
      - `GND` -> GND
      - `SDA` -> ESP32-C3 GPIO 4
      - `SCL` -> ESP32-C3 GPIO 5
-   - *Note*: Both sensors share the same hardware I2C bus at 100 kHz without address conflicts (`0x52` vs `0x68`).
+   - *Note*: Both sensors share the same hardware I2C bus at 100 kHz without address conflicts (`0x52` vs `0x68`). Both SDA and SCL lines are shared.
 3. **Dual Vibration Actuators (Spatial & Urgency Feedback)**:
    - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm.
    - **Motor 2 (Critical Hazard Boost)**: Signal to GPIO 9. Delivers rapid urgent pulsing when an obstacle is within 25 cm.
