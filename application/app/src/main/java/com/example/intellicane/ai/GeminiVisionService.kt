@@ -21,7 +21,7 @@ import java.util.concurrent.Executors
  */
 class GeminiVisionService(
     private var apiKey: String = DEFAULT_API_KEY,
-    private val model: String = "gemini-1.5-flash"
+    private val model: String = "gemini-3.1-flash-lite"
 ) {
     companion object {
         private const val TAG = "GeminiVisionService"
