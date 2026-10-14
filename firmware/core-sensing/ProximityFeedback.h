@@ -23,6 +23,8 @@ struct GroundHazardFeedback {
     uint16_t pulseOffMs;
 };
 
+constexpr uint16_t PLEASANT_ALERT_TONE_HZ = 800; // Warm, gentle 800 Hz tone (easy on human ears)
+
 inline ProximityFeedback feedbackForDistance(float distanceCm) {
     // No echo, invalid readings and the 60 cm boundary must not drive the motor.
     if (!isfinite(distanceCm) || distanceCm <= 0.0f || distanceCm >= 60.0f) {
@@ -30,13 +32,17 @@ inline ProximityFeedback feedbackForDistance(float distanceCm) {
     }
     float proximity = (60.0f - distanceCm) / 50.0f;
     if (proximity > 1.0f) proximity = 1.0f;
-    // Minimum duty helps overcome motor starting friction. Full strength at 10 cm.
-    return {
-        static_cast<uint8_t>(100 + proximity * 155),
-        static_cast<uint16_t>(60 + proximity * 140),
-        static_cast<uint16_t>(740 - proximity * 700),
-        static_cast<uint16_t>(1200 + proximity * 1600)
-    };
+
+    // Pleasant acoustic tuning:
+    // - CONSTANT, fixed frequency (800 Hz) throughout all distances (no pitch shifting)
+    // - Timing only: pulses accelerate progressively from ~1 pulse/sec at 60cm to ~6 pulses/sec at 10cm
+    // - Short, crisp 35ms - 45ms pulses that are gentle and pleasant on the ears
+    uint8_t motorDuty = static_cast<uint8_t>(100 + proximity * 155);
+    uint16_t beepOnMs = static_cast<uint16_t>(35 + proximity * 10);     // 35ms to 45ms
+    uint16_t beepOffMs = static_cast<uint16_t>(850 - proximity * 720);  // 850ms down to 130ms pause
+    uint16_t toneHz = PLEASANT_ALERT_TONE_HZ;                           // Constant 800 Hz!
+
+    return { motorDuty, beepOnMs, beepOffMs, toneHz };
 }
 
 inline GroundHazardFeedback feedbackForGround(float tofDistanceCm, float baselineCm = 115.0f) {

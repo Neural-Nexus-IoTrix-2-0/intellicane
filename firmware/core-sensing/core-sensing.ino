@@ -15,7 +15,7 @@
  *   - Dual Haptic Vibration Motors:
  *       Motor 1 (Primary Proximity): GPIO 6 (LEDC Channel 0, 20 kHz silent PWM)
  *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC Channel 1, 20 kHz silent PWM)
- *   - Active Buzzer:                 GPIO 7 (Active HIGH DC drive with proximity beeps)
+ *   - Gentle Alert Buzzer:           GPIO 7 (Constant 800 Hz gentle chime, proximity-accelerated pulses)
  *   - Pushbutton (Tactile Switch):   Freed / Not connected (AI triggered via Serial/BLE)
  *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
  *   - Onboard Status LED:            Freed / Not connected
@@ -42,15 +42,12 @@ constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
-constexpr uint8_t PIN_BUZZER      = 7;   // Active Buzzer (GPIO 7)
+constexpr uint8_t PIN_BUZZER      = 7;   // Buzzer (Constant 800 Hz comfortable tone)
 constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
 constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
 
 // Motor & Buzzer Configuration
 constexpr bool MOTOR_ACTIVE_LOW   = false;
-// Active buzzer: DC on/off. Passive piezo: dedicated audio-frequency PWM.
-constexpr bool BUZZER_IS_PASSIVE  = false;
-constexpr bool BUZZER_ACTIVE_LOW  = false; // Set to true if buzzer module is active-LOW
 constexpr uint8_t MOTOR_FWD_CHANNEL = 0;
 constexpr uint8_t MOTOR_GND_CHANNEL = 1;
 constexpr uint8_t BUZZER_CHANNEL    = 2;
@@ -100,7 +97,7 @@ void blePrintln(const char* msg);
 void triggerCameraSnapshot();
 void setMotorFwdPwm(uint8_t duty);
 void setMotorGndPwm(uint8_t duty);
-void setBuzzer(bool state, uint16_t frequencyHz = 2000);
+void setBuzzer(bool state, uint16_t frequencyHz = PLEASANT_ALERT_TONE_HZ);
 float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin);
 bool readTOF10120(float &distCm);
 bool tryInitMPU(bool verbose = true);
@@ -259,21 +256,16 @@ void setBuzzer(bool state, uint16_t frequencyHz) {
     static bool previousState = false;
     static uint16_t previousFrequency = 0;
     if (initialized && state == previousState &&
-        (!BUZZER_IS_PASSIVE || !state || frequencyHz == previousFrequency)) return;
+        (!state || frequencyHz == previousFrequency)) return;
     initialized = true;
     previousState = state;
     previousFrequency = frequencyHz;
 
-    if (BUZZER_IS_PASSIVE) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
+    ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
 #else
-        ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
+    ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
 #endif
-    } else {
-        bool pinLevel = BUZZER_ACTIVE_LOW ? !state : state;
-        digitalWrite(PIN_BUZZER, pinLevel ? HIGH : LOW);
-    }
 }
 
 // ============================================================================
@@ -465,7 +457,7 @@ void setup() {
     digitalWrite(PIN_CAM_TRIG, HIGH);
 
     pinMode(PIN_BUZZER, OUTPUT);
-    digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_LOW ? HIGH : LOW);
+    digitalWrite(PIN_BUZZER, LOW);
 
     // Single Ultrasonic Pins Setup (HC-SR04 with internal pull-down against floating noise)
     pinMode(PIN_US_TRIG, OUTPUT);
@@ -485,26 +477,24 @@ void setup() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     ledcAttachChannel(PIN_MOTOR_FWD, 20000, 8, MOTOR_FWD_CHANNEL);
     ledcAttachChannel(PIN_MOTOR_GND, 20000, 8, MOTOR_GND_CHANNEL);
-    if (BUZZER_IS_PASSIVE) ledcAttachChannel(PIN_BUZZER, 2000, 8, BUZZER_CHANNEL);
+    ledcAttachChannel(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8, BUZZER_CHANNEL);
 #else
     ledcSetup(MOTOR_FWD_CHANNEL, 20000, 8);
     ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
     ledcSetup(MOTOR_GND_CHANNEL, 20000, 8);
     ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
-    if (BUZZER_IS_PASSIVE) {
-        ledcSetup(BUZZER_CHANNEL, 2000, 8);
-        ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
-    }
+    ledcSetup(BUZZER_CHANNEL, PLEASANT_ALERT_TONE_HZ, 8);
+    ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
 #endif
     setMotorFwdPwm(0);
     setMotorGndPwm(0);
     setBuzzer(false);
 
-    // Startup confirmation: 50ms confirmation & dual haptic pulse
-    setBuzzer(true, 2000);
+    // Startup confirmation: gentle 40ms 800 Hz pip & dual haptic pulse
+    setBuzzer(true, PLEASANT_ALERT_TONE_HZ);
     setMotorFwdPwm(120);
     setMotorGndPwm(120);
-    delay(50);
+    delay(40);
     setBuzzer(false);
     setMotorFwdPwm(0);
     setMotorGndPwm(0);
