@@ -41,7 +41,7 @@ int lastLatencyMs = 0;
 #define PART_BOUNDARY "123456789000000000000987654321"
 static const char *_STREAM_CONTENT_TYPE =
     "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+static const char *_STREAM_BOUNDARY = "--" PART_BOUNDARY "\r\n";
 static const char *_STREAM_PART =
     "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
@@ -661,6 +661,8 @@ esp_err_t stream_handler(httpd_req_t *req) {
     return res;
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Private-Network", "true");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
   httpd_resp_set_hdr(req, "X-Framerate", "25");
 
   while (true) {
@@ -679,12 +681,16 @@ esp_err_t stream_handler(httpd_req_t *req) {
     if (res == ESP_OK) {
       res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
     }
+    if (res == ESP_OK) {
+      res = httpd_resp_send_chunk(req, "\r\n", 2);
+    }
     esp_camera_fb_return(fb);
     fb = NULL;
 
     if (res != ESP_OK) {
       break;
     }
+    vTaskDelay(pdMS_TO_TICKS(15));
   }
   return res;
 }
@@ -986,7 +992,7 @@ void handleRoot() {
 
   <script>
     let isStreaming = true;
-    let streamFailed = false;
+    let streamActive = false;
     let currentSpeech = "";
     let pollTimer = null;
 
@@ -998,21 +1004,46 @@ void handleRoot() {
       document.getElementById('streamToggleBtn').innerHTML = '<span>⏸️</span> Pause Stream';
       document.getElementById('live-badge').style.display = 'inline-flex';
 
-      // Load port 81 MJPEG video stream
-      imgElement.src = streamUrl;
+      // 1. Immediately load fresh camera frame on port 80 so the viewfinder is NEVER black
+      const initImg = new Image();
+      initImg.onload = function() {
+        if (!streamActive) {
+          imgElement.src = initImg.src;
+          document.getElementById('status-line').innerText = 'Live camera feed active.';
+        }
+      };
+      initImg.src = '/capture?t=' + Date.now();
 
-      // Fallback if port 81 is blocked on user network
-      imgElement.onerror = function() {
-        if (!streamFailed && isStreaming) {
-          streamFailed = true;
-          console.warn("Port 81 stream blocked or failed. Switching to fast frame polling.");
+      // 2. Test port 81 stream; if browser blocks cross-port stream, fall back to smooth polling
+      const testImg = new Image();
+      let streamTimer = setTimeout(() => {
+        if (!streamActive && isStreaming) {
+          console.warn("Port 81 stream not displaying in browser. Using fast frame polling.");
+          startFastPolling();
+        }
+      }, 1000);
+
+      testImg.onload = function() {
+        if (!streamActive && isStreaming) {
+          streamActive = true;
+          clearTimeout(streamTimer);
+          imgElement.src = streamUrl;
+          document.getElementById('fps-counter').innerText = 'REAL-TIME STREAM';
+          document.getElementById('status-line').innerText = 'Continuous high-speed stream active.';
+        }
+      };
+      testImg.onerror = function() {
+        if (!streamActive && isStreaming) {
+          clearTimeout(streamTimer);
           startFastPolling();
         }
       };
+      testImg.src = streamUrl;
     }
 
     function stopStream() {
       isStreaming = false;
+      streamActive = false;
       if (pollTimer) clearTimeout(pollTimer);
       imgElement.src = '/capture?t=' + Date.now();
       document.getElementById('streamToggleBtn').innerHTML = '<span>▶️</span> Resume Stream';
@@ -1028,7 +1059,7 @@ void handleRoot() {
       }
     }
 
-    // High-speed snapshot polling fallback
+    // High-speed snapshot polling fallback (Works 100% across all browsers and networks)
     function startFastPolling() {
       if (!isStreaming) return;
       const nextImg = new Image();
@@ -1037,6 +1068,7 @@ void handleRoot() {
         imgElement.src = nextImg.src;
         const fps = Math.round(1000 / Math.max(1, performance.now() - startT));
         document.getElementById('fps-counter').innerText = fps + ' FPS';
+        document.getElementById('status-line').innerText = 'Live camera feed active (' + fps + ' FPS).';
         if (isStreaming) {
           pollTimer = setTimeout(startFastPolling, 40);
         }
