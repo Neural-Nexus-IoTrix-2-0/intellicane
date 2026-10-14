@@ -15,7 +15,7 @@
  *   - Dual Haptic Vibration Motors:
  *       Motor 1 (Primary Proximity): GPIO 6 (LEDC Channel 0, 20 kHz silent PWM)
  *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC Channel 1, 20 kHz silent PWM)
- *   - Piezo Buzzer:                  GPIO 7 (LEDC Channel 2 tone generator, 2 kHz - 2.8 kHz)
+ *   - Active Buzzer:                 GPIO 7 (Active HIGH DC drive with proximity beeps)
  *   - Pushbutton (Tactile Switch):   Freed / Not connected (AI triggered via Serial/BLE)
  *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
  *   - Onboard Status LED:            Freed / Not connected
@@ -42,13 +42,14 @@ constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
-constexpr uint8_t PIN_BUZZER      = 7;   // Piezo Buzzer (LEDC Ch 2 tone generator)
+constexpr uint8_t PIN_BUZZER      = 7;   // Active Buzzer (GPIO 7)
 constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
 constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
 
 // Motor & Buzzer Configuration
-constexpr bool MOTOR_ACTIVE_LOW  = false;
-constexpr bool BUZZER_IS_PASSIVE = true;
+constexpr bool MOTOR_ACTIVE_LOW   = false;
+constexpr bool BUZZER_IS_PASSIVE  = false; // Active Buzzer has built-in oscillator (DC ON/OFF)
+constexpr bool BUZZER_ACTIVE_LOW  = false; // Set to true if buzzer module is active-LOW
 constexpr uint8_t MOTOR_FWD_CHANNEL = 0;
 constexpr uint8_t MOTOR_GND_CHANNEL = 1;
 constexpr uint8_t BUZZER_CHANNEL    = 2;
@@ -269,7 +270,8 @@ void setBuzzer(bool state, uint16_t frequencyHz) {
         ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
 #endif
     } else {
-        digitalWrite(PIN_BUZZER, state ? HIGH : LOW);
+        bool pinLevel = BUZZER_ACTIVE_LOW ? !state : state;
+        digitalWrite(PIN_BUZZER, pinLevel ? HIGH : LOW);
     }
 }
 
@@ -462,7 +464,7 @@ void setup() {
     digitalWrite(PIN_CAM_TRIG, HIGH);
 
     pinMode(PIN_BUZZER, OUTPUT);
-    digitalWrite(PIN_BUZZER, LOW);
+    digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_LOW ? HIGH : LOW);
 
     // Single Ultrasonic Pins Setup (HC-SR04 with internal pull-down against floating noise)
     pinMode(PIN_US_TRIG, OUTPUT);

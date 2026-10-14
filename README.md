@@ -40,7 +40,7 @@ Local motor feedback is silenced during fall events to prevent user distress whi
 | **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x68) |
 | **Motor 1 (Primary Proximity)** | IN GPIO 6; 20 kHz LEDC PWM Ch 0 (silent ultrasonic PWM) |
 | **Motor 2 (Dual Proximity)** | IN GPIO 2; 20 kHz LEDC PWM Ch 1 (silent ultrasonic PWM) |
-| **Piezo Buzzer** | GPIO 7; LEDC tone generation (2000–2800 Hz) for audio proximity and fall alarm |
+| **Active Buzzer** | GPIO 7; active DC drive with proximity warning beeps and fall alarm |
 | **Camera Trigger Line** | GPIO 21 output to ESP32-CAM GPIO 13 |
 | **ESP32-CAM Module** | OV2640 2MP Camera, powered from C3 5V/GND, Gemini AI Vision (Port 80) & Video Stream (Port 81) |
 | *(Pushbutton)* | Not connected (Trigger via Serial `c` or BLE `"describe"`; auto-reset on upright) |

@@ -13,7 +13,7 @@ This document details the active electrical wiring for the multi-sensor Intellig
 | **Shared I2C Bus** | SDA | **GPIO 4** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
 | **Shared I2C Bus** | SCL | **GPIO 5** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
 | **Motor 1 (Primary Proximity)** | IN / SIG | **GPIO 6** | Forward obstacle proximity tactile feedback (0–60 cm); LEDC Ch 0, 20 kHz silent PWM |
-| **Piezo Buzzer** | Signal | **GPIO 7** | Proximity warning beeps and high-urgency fall alarm tones (LEDC Ch 2 tone) |
+| **Active Buzzer** | Signal | **GPIO 7** | Proximity warning beeps and high-urgency fall alarm tones (Active HIGH DC drive) |
 | **Motor 2 (Dual Proximity Haptic)** | IN / SIG | **GPIO 2** | Dual handle tactile feedback; LEDC Ch 1, 20 kHz silent PWM |
 | **Camera Trigger Line** | SIG Out | **GPIO 21** | Active-LOW pulse (~80 ms) sent to ESP32-CAM GPIO 13 to command instant AI snapshot |
 | **5V Power Out to CAM** | 5V | **5V Pin** | Directly supplies 5V from USB to ESP32-CAM 5V pin |
@@ -81,8 +81,8 @@ This document details the active electrical wiring for the multi-sensor Intellig
    - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm (20 kHz silent PWM).
    - **Motor 2 (Dual Proximity)**: Signal to GPIO 2. Operates synchronously with Motor 1 for balanced tactile feedback across the cane grip (20 kHz silent PWM).
    - *Note*: Ensure vibration modules include onboard transistor drivers (MOSFET/BJT module). Direct MCU GPIO cannot supply raw motor current.
-5. **Piezo Buzzer (Audio Proximity Warning & Alarm)**:
-   - Connected to GPIO 7. Driven by LEDC tone frequency generation (2000 Hz to 2800 Hz) to support passive piezo elements.
+5. **Active Buzzer (Audio Proximity Warning & Alarm)**:
+   - Connected to GPIO 7. Driven with active DC gating (`HIGH` to sound, `LOW` to silence; configurable via `BUZZER_ACTIVE_LOW`).
 6. **On-Demand Camera Triggering (Without Physical Button)**:
    - **Via Serial Monitor**: Open USB Serial at 115200 baud and type `c` or `describe` or `capture` + Enter.
    - **Via Bluetooth**: Send `"describe"`, `"cam"`, or `"capture"` over BLE NUS characteristic.
