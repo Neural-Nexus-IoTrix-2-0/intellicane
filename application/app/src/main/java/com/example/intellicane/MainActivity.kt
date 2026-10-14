@@ -321,6 +321,10 @@ class MainActivity : AppCompatActivity() {
     private fun sendBleCommand(command: String) {
         val gatt = bluetoothGatt ?: return
         val writeChar = bleWriteCharacteristic ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
         val data = command.toByteArray(Charsets.UTF_8)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             gatt.writeCharacteristic(writeChar, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
