@@ -1,6 +1,6 @@
-# Intelligent Cane Integrated Hardware Wiring Reference
+# Intelligent Cane Integrated Hardware Wiring Reference (TOF Sensor Configuration)
 
-This document details the complete active electrical wiring for the multi-sensor Intelligent Cane prototype featuring the **ESP32-C3 SuperMini** (Core Sensing & Haptics) and **ESP32-CAM** (AI Vision Subsystem).
+This document details the active electrical wiring for the Intelligent Cane prototype featuring the **ESP32-C3 SuperMini** (Core Sensing & Haptics) and **ESP32-CAM** (AI Vision Subsystem), utilizing the **TOF10120 Laser Time-of-Flight sensor** for obstacle distance ranging instead of ultrasonic sensors.
 
 ---
 
@@ -8,18 +8,15 @@ This document details the complete active electrical wiring for the multi-sensor
 
 | Peripheral | Signal | ESP32-C3 GPIO | Electrical Configuration / Function |
 |---|---|:---:|---|
-| **Forward Ultrasonic (US1)** | TRIG | 0 | 10 µs trigger pulse output (Forward / Chest obstacle ranging) |
-| **Forward Ultrasonic (US1)** | ECHO | 1 | Direct connection to GPIO 1 (bench prototype) |
-| **Lower Ultrasonic (US2)** | TRIG | 2 | 10 µs trigger pulse output (Lower / Knee-level obstacle ranging) |
-| **Lower Ultrasonic (US2)** | ECHO | 10 | Direct connection to GPIO 10 |
 | **Pushbutton** | Switch to GND | 3 | Internal `INPUT_PULLUP`. Short press: manual AI camera trigger; fall alarm manual reset |
-| **I2C Bus (Shared)** | SDA | 4 | Hardware I2C at 100 kHz; 3.3V pull-ups. Shared by **MPU6050** (`0x68`) and **TOF10120** (`0x52`) |
-| **I2C Bus (Shared)** | SCL | 5 | Hardware I2C at 100 kHz; 3.3V pull-ups. Shared by **MPU6050** (`0x68`) and **TOF10120** (`0x52`) |
-| **Motor 1 (Forward Obstacle)** | IN / SIG | 6 | Forward obstacle proximity tactile feedback; LEDC Ch 0, 200 Hz PWM |
+| **I2C Bus (Shared)** | SDA | 4 | Hardware I2C at 100 kHz; 3.3V pull-ups. Shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
+| **I2C Bus (Shared)** | SCL | 5 | Hardware I2C at 100 kHz; 3.3V pull-ups. Shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
+| **Motor 1 (Primary Proximity)** | IN / SIG | 6 | Forward obstacle proximity tactile feedback (0–60 cm); LEDC Ch 0, 200 Hz PWM |
 | **Piezo Buzzer** | Signal | 7 | Proximity warning beeps and high-urgency fall alarm tones |
 | **Status LED** | Onboard | 8 | Active-LOW heartbeat / alert indicator |
-| **Motor 2 (Ground Drop / Curb)** | IN / SIG | 9 | Ground drop-off (>150 cm / out-of-range) and curb (<80 cm) haptic feedback; LEDC Ch 1, 200 Hz PWM |
+| **Motor 2 (Critical Hazard Boost)** | IN / SIG | 9 | Critical proximity (<25 cm) high-intensity pulse alert; LEDC Ch 1, 200 Hz PWM |
 | **Camera Trigger Line** | SIG Out | 21 | Active-LOW pulse (~80 ms) sent to ESP32-CAM GPIO 13 to command instant AI snapshot |
+| *(Ultrasonic HC-SR04)* | *(Unused)* | *0, 1, 2, 10* | Replaced by high-speed, non-blocking optical TOF10120 laser sensor |
 
 ---
 
@@ -55,27 +52,30 @@ This document details the complete active electrical wiring for the multi-sensor
         +---------------------------+
 ```
 
-### Sensor & Actuator Power Details:
+### Sensor & Actuator Connection Details:
 1. **Power Supply**:
-   - Power both MCUs, HC-SR04 sensors, TOF10120, and vibration motor modules from a regulated **5V source** (e.g. 5V rail or power bank) capable of delivering at least **1.5A–2.0A peak** (ESP32-CAM Wi-Fi bursts draw up to 500mA).
+   - Power both MCUs, TOF10120, and vibration motor modules from a regulated **5V source** (e.g. 5V rail or power bank) capable of delivering at least **1.5A–2.0A peak** (ESP32-CAM Wi-Fi bursts draw up to 500mA).
 2. **I2C Bus (GPIO 4 SDA, GPIO 5 SCL)**:
-   - Connect **MPU6050** (`VCC` to 3.3V or 5V if GY-521 board has onboard 3.3V regulator; `GND` to GND; `SDA` to C3 GPIO 4; `SCL` to C3 GPIO 5).
-   - Connect **TOF10120** (`VCC` to 3.3V or 5V; `GND` to GND; `RXD/SDA` to C3 GPIO 4; `TXD/SCL` to C3 GPIO 5).
-   - Both sensors communicate over standard I2C at 100 kHz. The C3 firmware includes automatic bus-recovery and device-detect logic so neither sensor blocks the other if disconnected.
-3. **Dual Ultrasonic Sensors (Acoustic Isolation)**:
-   - **Forward Ultrasonic (US1)**: `VCC` to 5V, `GND` to GND, `TRIG` to GPIO 0, `ECHO` to GPIO 1.
-   - **Lower Ultrasonic (US2)**: `VCC` to 5V, `GND` to GND, `TRIG` to GPIO 2, `ECHO` to GPIO 10.
-   - Ping timing is **alternated interleaved** in firmware (Cycle 0 = US1, Cycle 1 = US2) to completely eliminate acoustic echo cross-talk between sensors.
-4. **Dual Vibration Actuators (Spatial Dual-Zone Feedback)**:
-   - **Motor 1 (Forward Obstacles)**: Signal to GPIO 6. Vibrates with progressive intensity and frequency as obstacles approach within 60 cm.
-   - **Motor 2 (Ground Hazards)**: Signal to GPIO 9. Vibrates with pulsing pattern on ground drop-off / stairs down (>150 cm / out-of-range) and steady warning on curbs / steps (<80 cm).
+   - **TOF10120 Laser Distance Sensor (I2C Addr `0x52`)**:
+     - `VCC` -> 3.3V or 5V (accepts 3.0V to 5.0V)
+     - `GND` -> GND
+     - `SDA` -> ESP32-C3 GPIO 4
+     - `SCL` -> ESP32-C3 GPIO 5
+   - **MPU6050 Motion IMU (I2C Addr `0x68`)**:
+     - `VCC` -> 3.3V (or 5V if GY-521 board with 3.3V LDO)
+     - `GND` -> GND
+     - `SDA` -> ESP32-C3 GPIO 4
+     - `SCL` -> ESP32-C3 GPIO 5
+   - *Note*: Both sensors share the same hardware I2C bus at 100 kHz without address conflicts (`0x52` vs `0x68`).
+3. **Dual Vibration Actuators (Spatial & Urgency Feedback)**:
+   - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Proportional vibration as obstacles enter 60 cm range down to 10 cm.
+   - **Motor 2 (Critical Hazard Boost)**: Signal to GPIO 9. Delivers rapid urgent pulsing when an obstacle is within 25 cm.
    - *Note*: Ensure vibration modules include onboard transistor drivers. Direct MCU GPIO cannot drive motor inductive coils directly.
-5. **Camera Snapshot Trigger**:
+4. **Camera Snapshot Trigger**:
    - Run a single jumper wire from **ESP32-C3 GPIO 21** to **ESP32-CAM GPIO 13**.
    - Triggering happens automatically on:
      - User pressing cane button (GPIO 3).
      - Android app sending `"describe"` command over BLE NUS.
-     - Critical proximity warning threshold.
 
 ---
 
@@ -83,9 +83,9 @@ This document details the complete active electrical wiring for the multi-sensor
 
 1. [ ] **Common Ground**: Confirm all module GND pins connect to the single system ground.
 2. [ ] **I2C Check**: Power up C3 and observe USB Serial (115200 baud). Firmware should confirm `[I2C] Scanning bus...` finding `0x52` (TOF10120) and `0x68` (MPU6050).
-3. [ ] **Ultrasonic Validation**: Bring a hand towards US1 and US2 separately. Serial will output `[US1] d=XX.X cm` and `[US2] d=YY.Y cm`.
-4. [ ] **Dual Haptics Test**:
-   - Bring obstacle close to forward sensor: Motor 1 (GPIO 6) spins up smoothly.
-   - Tilt cane upward / aim TOF10120 into open distance (>150 cm): Motor 2 (GPIO 9) pulses to warn of drop-off.
+3. [ ] **TOF Distance Validation**: Move a hand or obstacle in front of the TOF sensor (10 cm to 150 cm). Serial will output `[CANE-C3] Dist: XX.X cm (ToF)`.
+4. [ ] **Haptics Test**:
+   - Bring obstacle within 60 cm: Motor 1 (GPIO 6) spins up smoothly and buzzer beeps.
+   - Move obstacle within 25 cm: Motor 2 (GPIO 9) engages in rapid pulsing alert.
 5. [ ] **AI Camera Trigger**: Press button on GPIO 3. Verify C3 logs `[CAM] Triggering camera snapshot (GPIO 21 pulse)` and ESP32-CAM logs `Hardware button pressed! Triggering Gemini Vision...`.
 6. [ ] **Fall Detection & App Sync**: Tilt cane past 65°. Motors silence immediately, buzzer sounds fall tone, and BLE dispatches `FALL_STATE:1` to companion app. Returning upright clears with `FALL_STATE:0`.

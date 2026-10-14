@@ -1,18 +1,18 @@
 /**
  * ============================================================================
- * IntelliCane — Advanced Multi-Sensor Core Firmware (ESP32-C3 SuperMini)
+ * IntelliCane — TOF-Based Core Sensing & Reflex Firmware (ESP32-C3 SuperMini)
  * Neural-Nexus | IoTrix 2.0 (Track A Embedded IoT System Development)
  * 
- * Full Hardware Integration:
- *   - Dual Ultrasonic (HC-SR04):
- *       US1 (Forward/Chest):  TRIG -> GPIO 0, ECHO -> GPIO 1
- *       US2 (Lower/Ground):   TRIG -> GPIO 2, ECHO -> GPIO 10
- *   - TOF10120 Laser ToF:    SDA -> GPIO 4, SCL -> GPIO 5 (I2C Addr 0x52)
- *   - MPU-6050 (GY-521) IMU:  SDA -> GPIO 4, SCL -> GPIO 5 (I2C Addr 0x68)
- *   - Dual Haptic Motors:
- *       Motor 1 (Forward Obstacle):   GPIO 6 (LEDC Channel 0, 200 Hz)
- *       Motor 2 (Ground / Drop-off):  GPIO 9 (LEDC Channel 1, 200 Hz)
- *   - Piezo Buzzer:                   GPIO 7 (Hazard audio & fall alarm)
+ * Hardware Architecture:
+ *   - Primary Distance Sensor: TOF10120 Laser Time-of-Flight (I2C Addr 0x52)
+ *       Millimeter-accurate, high-speed optical ranging (replacing ultrasonic)
+ *       SDA -> GPIO 4, SCL -> GPIO 5
+ *   - 6-Axis Motion & Fall IMU: MPU-6050 (GY-521) (I2C Addr 0x68)
+ *       Hardware I2C shared on SDA -> GPIO 4, SCL -> GPIO 5
+ *   - Dual Haptic Vibration Motors:
+ *       Motor 1 (Primary Proximity):  GPIO 6 (LEDC Channel 0, 200 Hz PWM)
+ *       Motor 2 (Critical Hazard Boost): GPIO 9 (LEDC Channel 1, 200 Hz PWM)
+ *   - Piezo Buzzer:                   GPIO 7 (Proximity beeps & audio hazard alert)
  *   - Pushbutton (Tactile Switch):    GPIO 3 (Input Pullup; alarm reset & AI trigger)
  *   - ESP32-CAM AI Vision Trigger:    GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
  *   - Onboard Status LED:             GPIO 8 (Active LOW)
@@ -34,18 +34,14 @@
 // ============================================================================
 // Pin Definitions (ESP32-C3 SuperMini)
 // ============================================================================
-constexpr uint8_t PIN_US1_TRIG    = 0;   // Ultrasonic 1 (Forward/Chest) Trigger
-constexpr uint8_t PIN_US1_ECHO    = 1;   // Ultrasonic 1 (Forward/Chest) Echo
-constexpr uint8_t PIN_US2_TRIG    = 2;   // Ultrasonic 2 (Lower/Ground) Trigger
-constexpr uint8_t PIN_US2_ECHO    = 10;  // Ultrasonic 2 (Lower/Ground) Echo
-constexpr uint8_t PIN_BUTTON      = 3;   // Pushbutton (Input Pullup)
-constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (MPU6050 + TOF10120)
-constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (MPU6050 + TOF10120)
-constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Forward Obstacle Proximity (LEDC Ch 0)
+constexpr uint8_t PIN_BUTTON      = 3;   // Pushbutton (Input Pullup; Camera trigger & fall reset)
+constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
+constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
+constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
 constexpr uint8_t PIN_BUZZER      = 7;   // Piezo Buzzer
 constexpr uint8_t PIN_LED_C3      = 8;   // Onboard LED (Active LOW)
-constexpr uint8_t PIN_MOTOR_GND   = 9;   // Motor 2: Ground Hazard / Drop-off (LEDC Ch 1)
-constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware pulse to ESP32-CAM GPIO 13
+constexpr uint8_t PIN_MOTOR_GND   = 9;   // Motor 2: Critical Proximity Booster (LEDC Ch 1)
+constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
 
 // Motor & Buzzer Configuration
 constexpr bool MOTOR_ACTIVE_LOW  = false;
@@ -77,11 +73,9 @@ uint32_t lastMpuRetryMs = 0;
 
 bool tofAvailable = false;
 uint32_t lastTofRetryMs = 0;
+uint8_t tofFailCount = 0;
 float tofDistanceCm = NAN;
-const float TOF_GROUND_BASELINE_CM = 115.0f; // Typical distance to ground when cane is held at 45 deg
 
-float distUs1Cm = NAN; // Forward / Chest
-float distUs2Cm = NAN; // Lower / Ground
 float tiltAngleDeg = 0.0f;
 float gMagnitude = 1.0f;
 bool fallAlert = false;
@@ -92,7 +86,6 @@ bool buzzerState = false;
 
 uint32_t lastSensorMs = 0;
 uint32_t lastTelemMs  = 0;
-uint8_t usCycleToggle = 0; // Alternates pinging US1 and US2 to prevent cross-talk
 
 // Forward declarations
 void blePrint(const char* msg);
@@ -101,7 +94,6 @@ void triggerCameraSnapshot();
 void setMotorFwdPwm(uint8_t duty);
 void setMotorGndPwm(uint8_t duty);
 void setBuzzer(bool state, uint16_t frequencyHz = 2000);
-float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin);
 bool readTOF10120(float &distCm);
 bool tryInitMPU(bool verbose = true);
 bool tryInitTOF(bool verbose = true);
@@ -166,7 +158,7 @@ class CaneBLECallbacks : public BLEServerCallbacks {
         }
         Serial.printf("\n[BLE] >>> CLIENT CONNECTED! (%s) <<<\n", connectedClientMac.c_str());
         blePrintln("=======================================================");
-        blePrintln("  INTELLICANE — MULTI-SENSOR WIRELESS TELEMETRY");
+        blePrintln("  INTELLICANE — TOF LASER TELEMETRY & CONTROL");
         blePrintln("=======================================================");
     }
 
@@ -276,37 +268,44 @@ void setBuzzer(bool state, uint16_t frequencyHz) {
 }
 
 // ============================================================================
-// Ultrasonic Ranging Helper
-// ============================================================================
-float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin) {
-    digitalWrite(trigPin, LOW);
-    delayMicroseconds(2);
-    digitalWrite(trigPin, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trigPin, LOW);
-
-    unsigned long durationUs = pulseIn(echoPin, HIGH, 26000);
-    if (durationUs == 0) return NAN;
-    return (float)durationUs * 0.0343f / 2.0f;
-}
-
-// ============================================================================
 // TOF10120 Time-of-Flight Laser Sensor (I2C Addr 0x52)
+// High-Speed Millimeter-Accurate Ranging
 // ============================================================================
 bool readTOF10120(float &distCm) {
     if (!tofAvailable) return false;
 
     Wire.beginTransmission(0x52);
     Wire.write(0x00);
-    if (Wire.endTransmission(false) != 0) return false;
+    uint8_t status = Wire.endTransmission();
+    if (status != 0) {
+        tofFailCount++;
+        if (tofFailCount >= 5) {
+            tofAvailable = false;
+            tofFailCount = 0;
+        }
+        return false;
+    }
 
-    if (Wire.requestFrom((uint8_t)0x52, (uint8_t)2) != 2) return false;
+    // Give TOF10120 sensor micro-delay to buffer range registers
+    delay(1);
 
+    if (Wire.requestFrom((uint8_t)0x52, (uint8_t)2) != 2) {
+        tofFailCount++;
+        if (tofFailCount >= 5) {
+            tofAvailable = false;
+            tofFailCount = 0;
+        }
+        return false;
+    }
+
+    tofFailCount = 0;
     uint16_t distMm = (Wire.read() << 8) | Wire.read();
-    if (distMm == 0 || distMm > 2000) {
-        distCm = 200.0f; // Saturated or out-of-range (indicates floor drop-off)
+
+    // TOF10120 returns 0, 2000, or erratic saturated values when out-of-range
+    if (distMm == 0 || distMm >= 1800) {
+        distCm = NAN; // Clear / no obstacle within ~1.8m
     } else {
-        distCm = (float)distMm / 10.0f;
+        distCm = (float)distMm / 10.0f; // Convert mm to cm
     }
     return true;
 }
@@ -315,6 +314,7 @@ bool tryInitTOF(bool verbose) {
     Wire.beginTransmission(0x52);
     if (Wire.endTransmission() == 0) {
         tofAvailable = true;
+        tofFailCount = 0;
         if (verbose) Serial.println("[TOF] TOF10120 Laser Distance Sensor detected at I2C 0x52!");
         return true;
     }
@@ -323,7 +323,7 @@ bool tryInitTOF(bool verbose) {
 }
 
 // ============================================================================
-// MPU6050 Motion & Fall IMU
+// MPU6050 Motion & Fall IMU (I2C Addr 0x68 / 0x69)
 // ============================================================================
 uint8_t readReg8(uint8_t addr, uint8_t reg) {
     Wire.beginTransmission(addr);
@@ -410,7 +410,10 @@ void scanI2C() {
     for (uint8_t addr = 1; addr < 127; addr++) {
         Wire.beginTransmission(addr);
         if (Wire.endTransmission() == 0) {
-            Serial.printf("[I2C] -> Found device at address 0x%02X\n", addr);
+            Serial.printf("[I2C] -> Found device at address 0x%02X", addr);
+            if (addr == 0x52) Serial.print(" (TOF10120 Laser Distance Sensor)");
+            else if (addr == 0x68 || addr == 0x69) Serial.print(" (MPU6050 Motion IMU)");
+            Serial.println();
             count++;
         }
     }
@@ -439,19 +442,11 @@ void setup() {
     pinMode(PIN_LED_C3, OUTPUT);
     digitalWrite(PIN_LED_C3, HIGH); // Off
 
-    // Ultrasonic Pins
-    pinMode(PIN_US1_TRIG, OUTPUT);
-    pinMode(PIN_US1_ECHO, INPUT);
-    pinMode(PIN_US2_TRIG, OUTPUT);
-    pinMode(PIN_US2_ECHO, INPUT);
-    digitalWrite(PIN_US1_TRIG, LOW);
-    digitalWrite(PIN_US2_TRIG, LOW);
-
     Serial.begin(115200);
     delay(500);
 
     Serial.println("\n=======================================================");
-    Serial.println("  INTELLICANE — ADVANCED MULTI-SENSOR SYSTEM (C3)     ");
+    Serial.println("  INTELLICANE — TOF LASER-GUIDED REFLEX SYSTEM (C3)   ");
     Serial.println("=======================================================");
 
     // Configure LEDC PWM Channels
@@ -473,7 +468,7 @@ void setup() {
     setMotorGndPwm(0);
     setBuzzer(false);
 
-    // Initialize I2C Bus
+    // Initialize I2C Bus (SDA=GPIO 4, SCL=GPIO 5)
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Wire.setClock(100000);
     Wire.setTimeOut(40);
@@ -494,29 +489,22 @@ void loop() {
     uint32_t now = millis();
 
     // ------------------------------------------------------------------------
-    // 1. Read Sensors every 35 ms
+    // 1. Read Sensors every 30 ms (High-speed non-blocking I2C loop)
     // ------------------------------------------------------------------------
-    if (now - lastSensorMs >= 35) {
+    if (now - lastSensorMs >= 30) {
         lastSensorMs = now;
 
-        // Alternate Ultrasonic pings to completely eliminate sonic cross-talk
-        if (usCycleToggle == 0) {
-            distUs1Cm = readUltrasonicCm(PIN_US1_TRIG, PIN_US1_ECHO);
-            usCycleToggle = 1;
-        } else {
-            distUs2Cm = readUltrasonicCm(PIN_US2_TRIG, PIN_US2_ECHO);
-            usCycleToggle = 0;
-        }
-
-        // Read TOF10120 Laser Distance Sensor (I2C)
+        // Read TOF10120 Laser Distance Sensor (I2C 0x52)
         if (tofAvailable) {
             float tDist = NAN;
             if (readTOF10120(tDist)) {
                 tofDistanceCm = tDist;
             }
+        } else {
+            tofDistanceCm = NAN;
         }
 
-        // Pushbutton Monitor: Short click resets alarm; Pressing button also triggers AI camera
+        // Pushbutton Monitor: Short click triggers AI camera; resets fall alarm
         static uint32_t buttonPressStart = 0;
         static bool lastButtonState = HIGH;
         bool btnState = digitalRead(PIN_BUTTON);
@@ -570,7 +558,7 @@ void loop() {
             }
         }
 
-        // Fall State Transition Dispatch over BLE
+        // Fall State Transition Dispatch over BLE (strictly backward-compatible)
         static bool previousFallState = false;
         if (fallAlert != previousFallState) {
             previousFallState = fallAlert;
@@ -603,20 +591,10 @@ void loop() {
     }
 
     // ------------------------------------------------------------------------
-    // 2. Dual-Zone Haptic & Audio Feedback Arbitration
+    // 2. Dual Haptic & Audio Feedback Arbitration (Driven by TOF Laser)
     // ------------------------------------------------------------------------
     now = millis();
-
-    // Determine closest forward obstacle from both ultrasonic sensors
-    float minFwdDistance = distUs1Cm;
-    if (isfinite(distUs2Cm) && distUs2Cm > 0.0f) {
-        if (!isfinite(minFwdDistance) || distUs2Cm < minFwdDistance) {
-            minFwdDistance = distUs2Cm;
-        }
-    }
-
-    const ProximityFeedback fwdFeedback = feedbackForDistance(minFwdDistance);
-    const GroundHazardFeedback gndFeedback = feedbackForGround(tofDistanceCm, TOF_GROUND_BASELINE_CM);
+    const ProximityFeedback feedback = feedbackForDistance(tofDistanceCm);
 
     if (fallAlert) {
         // Silent fall mode on cane (no buzzer or motor to prevent user distress)
@@ -628,24 +606,21 @@ void loop() {
         setBuzzer(false);
         digitalWrite(PIN_LED_C3, LOW); // LED active indicates emergency
     } else {
-        // --- Forward Obstacle Haptics (Motor 1) ---
-        currentMotorFwdPwm = fwdFeedback.motorDuty;
+        // --- Motor 1: Primary Proximity Feedback (0 to 60 cm) ---
+        currentMotorFwdPwm = feedback.motorDuty;
         setMotorFwdPwm(currentMotorFwdPwm);
 
-        // --- Ground Hazard / Drop-off Haptics (Motor 2) ---
-        if (gndFeedback.type == GroundHazardType::DROP_OFF) {
-            // Rhythmic warning pulse on Motor 2 for drop-off/stairs down
-            static bool gndPulseState = false;
-            static uint32_t lastGndPulseMs = 0;
-            uint32_t interval = gndPulseState ? gndFeedback.pulseOnMs : gndFeedback.pulseOffMs;
-            if (now - lastGndPulseMs >= interval) {
-                lastGndPulseMs = now;
-                gndPulseState = !gndPulseState;
+        // --- Motor 2: Critical Proximity Booster (< 25 cm) ---
+        // When obstacle is dangerously close, Motor 2 engages for high-intensity dual-motor alert
+        if (isfinite(tofDistanceCm) && tofDistanceCm > 0.0f && tofDistanceCm <= 25.0f) {
+            // Rapid urgent pulse on Motor 2 (100ms ON / 100ms OFF at full duty)
+            static bool m2PulseState = false;
+            static uint32_t lastM2PulseMs = 0;
+            if (now - lastM2PulseMs >= 100) {
+                lastM2PulseMs = now;
+                m2PulseState = !m2PulseState;
             }
-            currentMotorGndPwm = gndPulseState ? gndFeedback.motorDuty : 0;
-            setMotorGndPwm(currentMotorGndPwm);
-        } else if (gndFeedback.type == GroundHazardType::STEP_UP) {
-            currentMotorGndPwm = gndFeedback.motorDuty;
+            currentMotorGndPwm = m2PulseState ? 255 : 0;
             setMotorGndPwm(currentMotorGndPwm);
         } else {
             currentMotorGndPwm = 0;
@@ -653,14 +628,8 @@ void loop() {
         }
 
         // --- Buzzer Audio Feedback ---
-        // Beeps if forward obstacle is in range or if severe drop-off detected
-        uint8_t buzzMode = (fwdFeedback.motorDuty > 0) ? 1 : (gndFeedback.type == GroundHazardType::DROP_OFF ? 2 : 0);
-        uint16_t onTime  = (buzzMode == 2) ? 150 : fwdFeedback.beepOnMs;
-        uint16_t offTime = (buzzMode == 2) ? 150 : fwdFeedback.beepOffMs;
-        uint16_t pitch   = (buzzMode == 2) ? 2800 : fwdFeedback.toneHz;
-
-        buzzerState = beepEnvelope.update(now, onTime, offTime, buzzMode);
-        setBuzzer(buzzerState, pitch);
+        buzzerState = beepEnvelope.update(now, feedback.beepOnMs, feedback.beepOffMs, feedback.motorDuty > 0 ? 1 : 0);
+        setBuzzer(buzzerState, feedback.toneHz);
 
         digitalWrite(PIN_LED_C3, (currentMotorFwdPwm > 0 || currentMotorGndPwm > 0 || buzzerState) ? LOW : HIGH);
     }
@@ -673,31 +642,49 @@ void loop() {
 
         const char* alertMsg = "CLEAR";
         if (fallAlert) alertMsg = "FALL ALARM!";
-        else if (gndFeedback.type == GroundHazardType::DROP_OFF) alertMsg = "DROP-OFF HAZARD!";
-        else if (gndFeedback.type == GroundHazardType::STEP_UP) alertMsg = "CURB / STEP-UP";
-        else if (!isfinite(minFwdDistance)) alertMsg = "NO ECHO";
-        else if (minFwdDistance <= 10.0f) alertMsg = "CRITICAL HAZARD!";
-        else if (minFwdDistance <= 30.0f) alertMsg = "WARNING";
-        else if (minFwdDistance < 60.0f) alertMsg = "CAUTION";
+        else if (!tofAvailable) alertMsg = "NO TOF SENSOR";
+        else if (!isfinite(tofDistanceCm)) alertMsg = "CLEAR (>180cm)";
+        else if (tofDistanceCm <= 10.0f) alertMsg = "CRITICAL HAZARD!";
+        else if (tofDistanceCm <= 25.0f) alertMsg = "WARNING (CLOSE)";
+        else if (tofDistanceCm < 60.0f) alertMsg = "CAUTION";
+
+        char distBuf[20];
+        if (tofAvailable && isfinite(tofDistanceCm)) {
+            snprintf(distBuf, sizeof(distBuf), "%5.1f cm", tofDistanceCm);
+        } else if (tofAvailable) {
+            snprintf(distBuf, sizeof(distBuf), "CLEAR (>1.8m)");
+        } else {
+            snprintf(distBuf, sizeof(distBuf), "NO_TOF");
+        }
 
         char tiltBuf[16];
         if (mpuAvailable) snprintf(tiltBuf, sizeof(tiltBuf), "%5.1f°", tiltAngleDeg);
         else snprintf(tiltBuf, sizeof(tiltBuf), "NO_MPU");
 
-        char tofBuf[16];
-        if (tofAvailable && isfinite(tofDistanceCm)) snprintf(tofBuf, sizeof(tofBuf), "%5.1fcm", tofDistanceCm);
-        else snprintf(tofBuf, sizeof(tofBuf), "NO_TOF");
+        char bleStatusBuf[40];
+        if (bleClientConnected) {
+            if (connectedClientMac.length() > 0) {
+                snprintf(bleStatusBuf, sizeof(bleStatusBuf), "CONN [%s]", connectedClientMac.c_str());
+            } else {
+                snprintf(bleStatusBuf, sizeof(bleStatusBuf), "CONNECTED");
+            }
+        } else {
+            snprintf(bleStatusBuf, sizeof(bleStatusBuf), "ADVERTISING");
+        }
+
+        uint8_t vibPercent = (uint8_t)((currentMotorFwdPwm / 255.0f) * 100.0f);
 
         char telemLine[210];
         snprintf(telemLine, sizeof(telemLine),
-                 "[CANE] US1:%4.1fcm | US2:%4.1fcm | ToF:%s | Tilt:%s | Fall:%d | M1:%3d | M2:%3d | %s",
-                 distUs1Cm,
-                 distUs2Cm,
-                 tofBuf,
+                 "[CANE-C3] Dist: %s (ToF) | Tilt: %s | Fall: %d | Vib: %3d%% (M1:%3d/M2:%3d) | Buzz: %s | BLE: %-15s | Alert: %s",
+                 distBuf,
                  tiltBuf,
                  fallAlert ? 1 : 0,
+                 vibPercent,
                  currentMotorFwdPwm,
                  currentMotorGndPwm,
+                 buzzerState ? "ON" : "OFF",
+                 bleStatusBuf,
                  alertMsg);
 
         Serial.println(telemLine);

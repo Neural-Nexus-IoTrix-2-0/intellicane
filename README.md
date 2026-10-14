@@ -22,12 +22,10 @@ The organizer announcement specifies **10 minutes total: 4 minutes demonstration
 
 | Input | Firmware behavior |
 |---|---|
-| Forward obstacle >=60 cm | Obstacle vibration (Motor 1) and beeps off |
-| Forward obstacle <60 cm | Increasing Motor 1 PWM and beep urgency as distance decreases |
-| Forward obstacle <=10 cm | Full commanded Motor 1 duty (100% vibration) |
-| Ground TOF baseline (80–150 cm) | Ground hazard feedback off (Motor 2 idle) |
-| Ground TOF drop-off (>150 cm / out-of-range) | Motor 2 pulsing warning pattern (detects stairs down, holes, curbs down) |
-| Ground TOF curb step-up (<80 cm) | Motor 2 steady warning pattern (detects curbs up, steps, obstacles on ground) |
+| Obstacle distance >=60 cm (or >1.8m out-of-range) | Obstacle vibration (Motor 1 & 2) and proximity beeps off |
+| Obstacle distance <60 cm | Proportional Motor 1 PWM duty and increasing beep frequency as distance decreases |
+| Obstacle distance <=25 cm (Critical Proximity) | Motor 1 full duty + Motor 2 rapid urgent pulsing (dual-motor emergency warning) |
+| Obstacle distance <=10 cm | Full dual-motor commanded duty and continuous warning tone |
 | Pushbutton press or BLE `"describe"` | ESP32-C3 pulses GPIO 21 to trigger ESP32-CAM instant Gemini AI scene description |
 | Tilt >=65 degrees OR acceleration >=2.5 g | Fall state: motors silenced; alert buzzer tone; dispatches `FALL_STATE:1` over BLE |
 | Tilt <30 degrees or manual button press | Fall cleared; dispatches `FALL_STATE:0` over BLE and restores normal navigation |
@@ -38,24 +36,23 @@ Local motor feedback is silenced during fall events to prevent user distress whi
 
 | Component | Connection |
 |---|---|
-| **Forward HC-SR04 Ultrasonic (US1)** | TRIG GPIO 0; ECHO GPIO 1 (Chest/Forward obstacle ranging) |
-| **Lower HC-SR04 Ultrasonic (US2)** | TRIG GPIO 2; ECHO GPIO 10 (Knee/Lower obstacle ranging) |
-| **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; hardware I2C at 100 kHz (0x68) |
-| **TOF10120 Laser Sensor** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x52, downward angled) |
-| **Motor 1 (Forward Obstacle)** | IN GPIO 6; 200 Hz LEDC PWM Ch 0 |
-| **Motor 2 (Ground Drop / Curb)** | IN GPIO 9; 200 Hz LEDC PWM Ch 1 |
+| **TOF10120 Laser Distance Sensor** | SDA GPIO 4, SCL GPIO 5; hardware I2C at 100 kHz (0x52, high-speed optical ToF) |
+| **MPU6050 6-Axis IMU** | SDA GPIO 4, SCL GPIO 5; shared hardware I2C (0x68) |
+| **Motor 1 (Primary Proximity)** | IN GPIO 6; 200 Hz LEDC PWM Ch 0 |
+| **Motor 2 (Critical Hazard Boost)** | IN GPIO 9; 200 Hz LEDC PWM Ch 1 |
 | **Piezo Buzzer** | GPIO 7; audio proximity beeps and fall alarm |
 | **Tactile Pushbutton** | GPIO 3 to GND, INPUT_PULLUP (Camera trigger / manual fall reset) |
 | **Camera Trigger Line** | GPIO 21 output to ESP32-CAM GPIO 13 |
 | **ESP32-CAM Module** | OV2640 2MP Camera, Wi-Fi streaming (Port 81), Gemini AI Vision (Port 80) |
 | **Onboard Status LED** | GPIO 8, active LOW |
+| *(Ultrasonic HC-SR04)* | *(Unused)* — superseded by TOF10120 optical laser sensor |
 
 Common ground (GND) is shared across all modules. Refer to [wiring.md](hardware/wiring.md) for detailed electrical documentation.
 
 ## Firmware and build
 
 ### 1. Core Sensing & Reflex Firmware (`firmware/core-sensing/`)
-Interleaves dual ultrasonic pings every 40 ms, reads TOF10120 laser ranging and MPU6050 IMU, manages dual-zone haptics, and dispatches BLE NUS telemetry every 250 ms:
+Samples TOF10120 laser ranging and MPU6050 IMU every 30 ms over non-blocking I2C, manages dual haptics, and dispatches BLE NUS telemetry every 250 ms:
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio firmware/core-sensing
@@ -75,9 +72,8 @@ arduino-cli compile --fqbn esp32:esp32:esp32cam firmware/cam-module
 
 ## Implemented and verified
 
-- **Dual-Range Ultrasonic Sensing**: Interleaved ping scheduling on US1 (Forward) and US2 (Lower) with 0% acoustic cross-talk.
-- **Time-of-Flight Ground Sensing**: TOF10120 laser ranging angled downward to instantly catch drop-offs, open pits, curbs, and stairs.
-- **Dual-Zone Spatial Haptics**: Motor 1 for forward obstacles; Motor 2 for ground hazards (curbs and drop-offs).
+- **Time-of-Flight Laser Ranging**: Millimeter-accurate, high-speed optical TOF10120 ranging over I2C, eliminating ultrasonic acoustic delay and echo artifacts.
+- **Dual-Motor Tactile Feedback**: Motor 1 provides smooth progressive warning (0–60 cm); Motor 2 delivers rapid pulsing alert when obstacles enter the critical hazard zone (< 25 cm).
 - **Gemini 3.1 Flash Lite AI Vision**: On-demand scene descriptions triggered via button, BLE command, or web dashboard. Chunked transfer HTTP decoder for sub-second cloud responses.
 - **High-Speed Video Stream**: 15–25 FPS MJPEG camera server on port 81 with dynamic resolution switching.
 - **Autonomous Fall Detection**: MPU6050 impact and tilt vector tracking with instant BLE dispatch (`FALL_STATE:1`/`FALL_STATE:0`).
