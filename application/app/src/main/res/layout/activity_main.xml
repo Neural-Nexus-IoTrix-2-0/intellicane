@@ -529,6 +529,113 @@
 
     </androidx.cardview.widget.CardView>
 
+    <!-- User Mode Image Preview Card (Hidden by Default) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/cardImagePreview"
+        android:layout_width="0dp"
+        android:layout_height="260dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="88dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#1A1A1A"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="20dp"
+        android:translationZ="20dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:text="IMAGE PREVIEW"
+                    android:textColor="#00E5FF"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvCloseImagePreview"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:padding="6dp"
+                    android:text="Close ✕"
+                    android:textColor="#FF5252"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+            </RelativeLayout>
+
+            <ScrollView
+                android:id="@+id/scrollImageError"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvImageErrorOutput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:padding="8dp"
+                    android:textColor="#FF5252"
+                    android:textSize="13sp" />
+
+            </ScrollView>
+
+            <ImageView
+                android:id="@+id/ivImagePreview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="true"
+                android:contentDescription="Received Image Preview"
+                android:scaleType="fitCenter" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- Floating Image Preview Toggle Button ("📷" button next to "T" terminal button) -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnToggleImage"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_marginEnd="80dp"
+        android:layout_marginBottom="24dp"
+        android:alpha="0.85"
+        android:backgroundTint="#212121"
+        android:insetLeft="0dp"
+        android:insetTop="0dp"
+        android:insetRight="0dp"
+        android:insetBottom="0dp"
+        android:padding="0dp"
+        android:text="📷"
+        android:textColor="#00E5FF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:translationZ="30dp"
+        android:visibility="gone"
+        app:cornerRadius="26dp"
+        app:elevation="30dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <!-- Floating Terminal Toggle Button (Translucent "T" button on top) -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnToggleTerminal"

@@ -27,6 +27,8 @@ class AiVisionCoordinator(
         fun onStatusUpdate(status: String)
         fun onImageReceived(bitmap: Bitmap)
         fun onDescriptionReady(description: String)
+        fun onTransferStarted()
+        fun onTransferError(reason: String)
     }
 
     val imageReceiver = BleImageReceiver(this)
@@ -67,6 +69,7 @@ class AiVisionCoordinator(
         val msg = "Receiving image from cane ($expectedBytes bytes, $totalChunks chunks)..."
         Log.i(TAG, msg)
         uiListener?.onStatusUpdate("Receiving photo: 0%")
+        uiListener?.onTransferStarted()
     }
 
     override fun onTransferProgress(chunkIndex: Int, totalChunks: Int, percent: Int) {
@@ -104,6 +107,7 @@ class AiVisionCoordinator(
         isAnalyzing = false
         Log.e(TAG, "Image transfer error: $reason")
         uiListener?.onStatusUpdate("Transfer failed: $reason")
+        uiListener?.onTransferError(reason)
         ttsManager.speak("Photo transfer failed. Please try again.", flush = true)
     }
 
