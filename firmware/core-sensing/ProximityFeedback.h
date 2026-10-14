@@ -28,7 +28,7 @@ struct GroundHazardFeedback {
     uint16_t pulseOffMs;
 };
 
-constexpr uint16_t PLEASANT_ALERT_TONE_HZ = 800; // Used only with a passive buzzer.
+constexpr uint16_t PLEASANT_ALERT_TONE_HZ = 520; // 520 Hz: rich, low-frequency comfortable tone with high acoustic volume
 
 inline ProximityFeedback feedbackForDistance(float distanceCm) {
     // No echo, invalid readings and the 60 cm boundary must not drive the motor.
@@ -38,11 +38,11 @@ inline ProximityFeedback feedbackForDistance(float distanceCm) {
     float proximity = (60.0f - distanceCm) / 50.0f;
     if (proximity > 1.0f) proximity = 1.0f;
 
-    // Brief, widely spaced cues at long range; stronger and faster as the
+    // Rich, widely spaced low-frequency cues at range; stronger and faster as the
     // obstacle approaches. Keep a minimum commanded duty so the motor starts.
     uint8_t motorDuty = static_cast<uint8_t>(135 + proximity * 120);
-    uint16_t beepOnMs = static_cast<uint16_t>(45 + proximity * 25);
-    uint16_t beepOffMs = static_cast<uint16_t>(1200 - proximity * 980);
+    uint16_t beepOnMs = static_cast<uint16_t>(80 + proximity * 40);
+    uint16_t beepOffMs = static_cast<uint16_t>(1100 - proximity * 880);
 
     // Pulse Motor 1 only in the caution zone. It becomes continuous at 40 cm
     // so an approaching obstacle cannot disappear between pulses.

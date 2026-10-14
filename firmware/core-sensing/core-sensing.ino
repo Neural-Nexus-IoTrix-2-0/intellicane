@@ -28,6 +28,7 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <esp_arduino_version.h>
+#include <esp_mac.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -42,13 +43,13 @@ constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
-constexpr uint8_t PIN_BUZZER      = 7;   // Buzzer (Constant 800 Hz comfortable tone)
+constexpr uint8_t PIN_BUZZER      = 7;   // Buzzer (520 Hz low pleasant tone, high volume)
 constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
 constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
 
 // Motor & Buzzer Configuration
 constexpr bool MOTOR_ACTIVE_LOW      = false;
-constexpr bool BUZZER_IS_PASSIVE     = false; // Set true only for a passive piezo.
+constexpr bool BUZZER_IS_PASSIVE     = true; // 50% PWM tone creates rich low frequency with maximum acoustic volume
 constexpr uint32_t MOTOR_PWM_FREQ_HZ = 200; // 200 Hz carrier frequency optimal for DC brushed vibration motors
 constexpr uint8_t MOTOR_FWD_CHANNEL  = 0;
 constexpr uint8_t MOTOR_GND_CHANNEL  = 1;
@@ -203,6 +204,11 @@ void initBLE() {
     BLEDevice::init("Intelligent-Cane");
     BLEDevice::setMTU(256);
 
+    uint8_t btMac[6];
+    esp_read_mac(btMac, ESP_MAC_BT);
+    Serial.printf("[BLE] >>> ACTIVE BLE MAC ADDRESS: %02X:%02X:%02X:%02X:%02X:%02X <<<\n",
+                  btMac[0], btMac[1], btMac[2], btMac[3], btMac[4], btMac[5]);
+
     pBleServer = BLEDevice::createServer();
     pBleServer->setCallbacks(new CaneBLECallbacks());
 
@@ -269,21 +275,17 @@ void setBuzzer(bool state, uint16_t frequencyHz) {
     static bool previousState = false;
     static uint16_t previousFrequency = 0;
     if (initialized && state == previousState &&
-        (!BUZZER_IS_PASSIVE || !state || frequencyHz == previousFrequency)) return;
+        (!state || frequencyHz == previousFrequency)) return;
     initialized = true;
     previousState = state;
     previousFrequency = frequencyHz;
 
-    if (BUZZER_IS_PASSIVE) {
+    // 50% duty cycle PWM generates maximum acoustic power with rich low frequency
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-        ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
+    ledcWriteTone(PIN_BUZZER, state ? frequencyHz : 0);
 #else
-        ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
+    ledcWriteTone(BUZZER_CHANNEL, state ? frequencyHz : 0);
 #endif
-    } else {
-        // An active buzzer generates its own pitch and needs DC on/off gating.
-        digitalWrite(PIN_BUZZER, state ? HIGH : LOW);
-    }
 }
 
 // ============================================================================
@@ -464,6 +466,12 @@ void scanI2C() {
 // Setup
 // ============================================================================
 void setup() {
+    // Configure target MAC address before BLE stack initializes so the Android companion app
+    // (which connects directly to 48:F6:EE:17:C1:78) can connect instantly.
+    // ESP32 BT MAC = Base MAC + 2, so Base MAC ending in 0x76 yields BT MAC ending in 0x78.
+    uint8_t targetBaseMac[6] = {0x48, 0xF6, 0xEE, 0x17, 0xC1, 0x76};
+    esp_base_mac_addr_set(targetBaseMac);
+
     // Motor initial off levels
     pinMode(PIN_MOTOR_FWD, OUTPUT);
     pinMode(PIN_MOTOR_GND, OUTPUT);
@@ -495,21 +503,17 @@ void setup() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     bool m1Ok = ledcAttachChannel(PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, 8, MOTOR_FWD_CHANNEL);
     bool m2Ok = ledcAttachChannel(PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, 8, MOTOR_GND_CHANNEL);
+    bool buzzOk = ledcAttachChannel(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8, BUZZER_CHANNEL);
     Serial.printf("[LEDC] Motor 1 (GPIO %d, %uHz): %s\n", PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, m1Ok ? "OK" : "FAILED");
     Serial.printf("[LEDC] Motor 2 (GPIO %d, %uHz): %s\n", PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, m2Ok ? "OK" : "FAILED");
-    if (BUZZER_IS_PASSIVE) {
-        bool buzzOk = ledcAttachChannel(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8, BUZZER_CHANNEL);
-        Serial.printf("[LEDC] Passive buzzer (GPIO %d): %s\n", PIN_BUZZER, buzzOk ? "OK" : "FAILED");
-    }
+    Serial.printf("[LEDC] Low-frequency buzzer (GPIO %d, %uHz): %s\n", PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, buzzOk ? "OK" : "FAILED");
 #else
     ledcSetup(MOTOR_FWD_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
     ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
     ledcSetup(MOTOR_GND_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
     ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
-    if (BUZZER_IS_PASSIVE) {
-        ledcSetup(BUZZER_CHANNEL, PLEASANT_ALERT_TONE_HZ, 8);
-        ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
-    }
+    ledcSetup(BUZZER_CHANNEL, PLEASANT_ALERT_TONE_HZ, 8);
+    ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
 #endif
     setMotorFwdPwm(0);
     setMotorGndPwm(0);
