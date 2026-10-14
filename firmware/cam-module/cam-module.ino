@@ -7,6 +7,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_http_server.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 #if __has_include("config.h")
 #include "config.h"
@@ -79,6 +81,9 @@ void handleResolution();
 // Setup
 // ============================================================================
 void setup() {
+  // Disable brownout detector immediately to eliminate reset loops on bus power
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   Serial.begin(SERIAL_BAUD_RATE);
   Serial.setTimeout(150);
   delay(1000);
@@ -110,16 +115,22 @@ void setup() {
   // Initialize Wi-Fi
   setupWiFi();
 
+#if ENABLE_WIFI
   // Initialize Web Control Server (Port 80)
   setupWebServer();
 
   // Initialize High-Speed MJPEG Video Stream (Port 81)
   startCameraStreamServer();
+#endif
 
   setStatusLed(false); // Turn off status LED (ready)
   Serial.println("\n[READY] System operational.");
+#if ENABLE_WIFI
   Serial.println("Stream URL:   http://<ip>:81/stream");
   Serial.println("Dashboard:    http://<ip>/ or http://intellicane.local");
+#else
+  Serial.println("Mode:         Cane UART Stream Mode (Zero-RF Low-Power)");
+#endif
   Serial.println(
       "Commands: DESCRIBE, CAPTURE, FLASH ON, FLASH OFF, STATUS, HELP");
   Serial.println("================================================\n");
@@ -129,7 +140,9 @@ void setup() {
 // Main Loop
 // ============================================================================
 void loop() {
+#if ENABLE_WIFI
   server.handleClient();
+#endif
   handleSerialCommands();
   checkHardwareTrigger();
   yield();
@@ -203,12 +216,21 @@ void setupCamera() {
 // Wi-Fi Configuration
 // ============================================================================
 void setupWiFi() {
+#ifndef ENABLE_WIFI
+#define ENABLE_WIFI false
+#endif
+
+#if !ENABLE_WIFI
+  Serial.println("[WIFI] Wi-Fi radio OFF (Cane UART Bus Mode). Zero RF current surge.");
+  return;
+#else
   Serial.printf("[WIFI] Connecting to '%s'...\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   unsigned long startAttempt = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 10000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 6000) {
     delay(300);
     Serial.print(".");
   }
@@ -235,6 +257,7 @@ void setupWiFi() {
       Serial.println("[MDNS] Hostname registered: http://intellicane.local");
     }
   }
+#endif
 }
 
 // ============================================================================

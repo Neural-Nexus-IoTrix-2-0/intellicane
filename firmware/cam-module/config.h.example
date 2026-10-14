@@ -11,9 +11,12 @@
 // ============================================================================
 
 // 1. Wi-Fi Settings
-// Set your Wi-Fi SSID and Password here.
-// If the ESP32-CAM cannot connect to your Wi-Fi within 10 seconds,
-// it automatically creates its own SoftAP hotspot named "IntelliCane-Cam".
+// Set ENABLE_WIFI to false when powering the ESP32-CAM via the ESP32-C3 / cane bus.
+// In Cane Mode, photos are transferred over UART -> ESP32-C3 -> BLE -> Phone -> Gemini.
+// Disabling Wi-Fi prevents RF current surges from tripping the Brownout Detector.
+// Set to true only if using standalone Wi-Fi web dashboard / video streaming.
+#define ENABLE_WIFI false
+
 #define WIFI_SSID           "YOUR_WIFI_SSID"
 #define WIFI_PASS           "YOUR_WIFI_PASSWORD"
 
