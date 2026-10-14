@@ -42,10 +42,10 @@ Local motor feedback is silenced during fall events to prevent user distress whi
 | **Motor 1 (Primary Proximity)** | IN GPIO 6; 200 Hz LEDC PWM Ch 0 |
 | **Motor 2 (Critical Hazard Boost)** | IN GPIO 9; 200 Hz LEDC PWM Ch 1 |
 | **Piezo Buzzer** | GPIO 7; audio proximity beeps and fall alarm |
-| **Tactile Pushbutton** | GPIO 3 to GND, INPUT_PULLUP (Camera trigger / manual fall reset) |
 | **Camera Trigger Line** | GPIO 21 output to ESP32-CAM GPIO 13 |
-| **ESP32-CAM Module** | OV2640 2MP Camera, Wi-Fi streaming (Port 81), Gemini AI Vision (Port 80) |
-| **Onboard Status LED** | GPIO 8, active LOW |
+| **ESP32-CAM Module** | OV2640 2MP Camera, powered from C3 5V/GND, Gemini AI Vision (Port 80) & Video Stream (Port 81) |
+| *(Pushbutton)* | Not connected (Trigger via Serial `c` or BLE `"describe"`; auto-reset on upright) |
+| *(Status LED)* | Not connected (bench build without external LED) |
 
 Common ground (GND) is shared across all modules. Refer to [wiring.md](hardware/wiring.md) for detailed electrical documentation.
 

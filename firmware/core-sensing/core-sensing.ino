@@ -39,12 +39,10 @@
 // ============================================================================
 constexpr uint8_t PIN_US_TRIG     = 0;   // Ultrasonic Trigger (HC-SR04)
 constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
-constexpr uint8_t PIN_BUTTON      = 3;   // Pushbutton (Input Pullup; Camera trigger & fall reset)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
 constexpr uint8_t PIN_BUZZER      = 7;   // Piezo Buzzer
-constexpr uint8_t PIN_LED_C3      = 8;   // Onboard LED (Active LOW)
 constexpr uint8_t PIN_MOTOR_GND   = 9;   // Motor 2: Critical Proximity Booster (LEDC Ch 1)
 constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
 
@@ -462,11 +460,8 @@ void setup() {
     pinMode(PIN_CAM_TRIG, OUTPUT);
     digitalWrite(PIN_CAM_TRIG, HIGH);
 
-    pinMode(PIN_BUTTON, INPUT_PULLUP);
     pinMode(PIN_BUZZER, OUTPUT);
     digitalWrite(PIN_BUZZER, LOW);
-    pinMode(PIN_LED_C3, OUTPUT);
-    digitalWrite(PIN_LED_C3, HIGH); // Off
 
     // Single Ultrasonic Pins Setup (HC-SR04)
     pinMode(PIN_US_TRIG, OUTPUT);
@@ -538,31 +533,25 @@ void loop() {
             tofDistanceCm = NAN;
         }
 
-        // Pushbutton Monitor: Short click triggers AI camera; resets fall alarm
-        static uint32_t buttonPressStart = 0;
-        static bool lastButtonState = HIGH;
-        bool btnState = digitalRead(PIN_BUTTON);
-
-        if (btnState == LOW && lastButtonState == HIGH) {
-            buttonPressStart = now;
-        } else if (btnState == HIGH && lastButtonState == LOW) {
-            uint32_t pressDuration = now - buttonPressStart;
-            if (fallAlert) {
-                fallAlert = false;
-                Serial.println("[Button] Fall alarm reset.");
-                if (bleClientConnected) {
-                    blePrintln(">>> [BUTTON: ALARM CLEARED] Fall reset via button <<<");
-                    blePrintln("FALL_STATE:0");
-                }
-            } else if (pressDuration > 40) {
-                Serial.println("[Button] AI Camera scene description requested via cane button!");
+        // Serial Command Monitor (Bench testing without button: type 'c' or 'describe' to trigger camera)
+        if (Serial.available()) {
+            String cmd = Serial.readStringUntil('\n');
+            cmd.trim();
+            cmd.toLowerCase();
+            if (cmd == "c" || cmd == "cam" || cmd == "capture" || cmd == "describe") {
+                Serial.println("[Serial] AI Camera capture commanded via Serial Monitor!");
                 triggerCameraSnapshot();
                 if (bleClientConnected) {
-                    blePrintln(">>> [AI VISION] Cane button clicked! Triggering camera snapshot... <<<");
+                    blePrintln(">>> [AI VISION] Camera capture triggered via Serial <<<");
+                }
+            } else if (cmd == "r" || cmd == "reset") {
+                fallAlert = false;
+                Serial.println("[Serial] Fall alert cleared via Serial Monitor.");
+                if (bleClientConnected) {
+                    blePrintln("FALL_STATE:0");
                 }
             }
         }
-        lastButtonState = btnState;
 
         // MPU6050 Motion & Fall Monitoring
         if (mpuAvailable) {
@@ -655,7 +644,6 @@ void loop() {
         setMotorGndPwm(0);
         buzzerState = false;
         setBuzzer(false);
-        digitalWrite(PIN_LED_C3, LOW); // LED active indicates emergency
     } else {
         // --- Motor 1: Primary Proximity Feedback (0 to 60 cm) ---
         currentMotorFwdPwm = feedback.motorDuty;
@@ -681,8 +669,6 @@ void loop() {
         // --- Buzzer Audio Feedback ---
         buzzerState = beepEnvelope.update(now, feedback.beepOnMs, feedback.beepOffMs, feedback.motorDuty > 0 ? 1 : 0);
         setBuzzer(buzzerState, feedback.toneHz);
-
-        digitalWrite(PIN_LED_C3, (currentMotorFwdPwm > 0 || currentMotorGndPwm > 0 || buzzerState) ? LOW : HIGH);
     }
 
     // ------------------------------------------------------------------------
