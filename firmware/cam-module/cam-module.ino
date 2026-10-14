@@ -1,19 +1,19 @@
+#include "camera_pins.h"
+#include "esp_camera.h"
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <WebServer.h>
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
+#include <WebServer.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <esp_http_server.h>
-#include "esp_camera.h"
-#include "camera_pins.h"
 
 #if __has_include("config.h")
-  #include "config.h"
+#include "config.h"
 #elif __has_include("config.h.example")
-  #include "config.h.example"
+#include "config.h.example"
 #else
-  #error "Configuration file missing! Please copy config.h.example to config.h"
+#error "Configuration file missing! Please copy config.h.example to config.h"
 #endif
 
 // ============================================================================
@@ -28,7 +28,8 @@ unsigned long lastTriggerTime = 0;
 const unsigned long DEBOUNCE_DELAY_MS = 1000;
 
 // Last scene analysis cache
-String lastSpokenSummary = "Awaiting command. Press Describe to scan surroundings.";
+String lastSpokenSummary =
+    "Awaiting command. Press Describe to scan surroundings.";
 String lastUrgentHazards = "None";
 String lastWalkablePath = "Unknown";
 String lastObjectsJson = "[]";
@@ -38,12 +39,15 @@ int lastLatencyMs = 0;
 
 // MJPEG Stream Boundary Definition
 #define PART_BOUNDARY "123456789000000000000987654321"
-static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+static const char *_STREAM_CONTENT_TYPE =
+    "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+static const char *_STREAM_PART =
+    "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
 // Base64 lookup table
-static const char B64_TABLE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char B64_TABLE[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 // ============================================================================
 // Forward Declarations
@@ -54,7 +58,7 @@ void setupWebServer();
 void startCameraStreamServer();
 void setStatusLed(bool on);
 void setFlashLed(bool on);
-camera_fb_t* captureFrame();
+camera_fb_t *captureFrame();
 String performSceneDescription();
 String callGeminiVision(camera_fb_t *fb);
 void streamBase64(WiFiClientSecure &client, const uint8_t *data, size_t length);
@@ -83,11 +87,12 @@ void setup() {
   // Initialize LEDs & Trigger Pin
   pinMode(STATUS_LED_PIN, OUTPUT);
   pinMode(FLASH_LED_PIN, OUTPUT);
-  setStatusLed(true);  // Turn on status LED during boot
+  setStatusLed(true); // Turn on status LED during boot
   setFlashLed(false);
 
   pinMode(TRIGGER_PIN, INPUT_PULLUP);
-  Serial.printf("[INIT] Hardware trigger configured on GPIO %d (active LOW)\n", TRIGGER_PIN);
+  Serial.printf("[INIT] Hardware trigger configured on GPIO %d (active LOW)\n",
+                TRIGGER_PIN);
 
   // Initialize Camera
   setupCamera();
@@ -105,7 +110,8 @@ void setup() {
   Serial.println("\n[READY] System operational.");
   Serial.println("Stream URL:   http://<ip>:81/stream");
   Serial.println("Dashboard:    http://<ip>/ or http://intellicane.local");
-  Serial.println("Commands: DESCRIBE, CAPTURE, FLASH ON, FLASH OFF, STATUS, HELP");
+  Serial.println(
+      "Commands: DESCRIBE, CAPTURE, FLASH ON, FLASH OFF, STATUS, HELP");
   Serial.println("================================================\n");
 }
 
@@ -125,54 +131,57 @@ void loop() {
 void setupCamera() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer   = LEDC_TIMER_0;
-  config.pin_d0       = Y2_GPIO_NUM;
-  config.pin_d1       = Y3_GPIO_NUM;
-  config.pin_d2       = Y4_GPIO_NUM;
-  config.pin_d3       = Y5_GPIO_NUM;
-  config.pin_d4       = Y6_GPIO_NUM;
-  config.pin_d5       = Y7_GPIO_NUM;
-  config.pin_d6       = Y8_GPIO_NUM;
-  config.pin_d7       = Y9_GPIO_NUM;
-  config.pin_xclk     = XCLK_GPIO_NUM;
-  config.pin_pclk     = PCLK_GPIO_NUM;
-  config.pin_vsync    = VSYNC_GPIO_NUM;
-  config.pin_href     = HREF_GPIO_NUM;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
   config.pin_sccb_sda = SIOD_GPIO_NUM;
   config.pin_sccb_scl = SIOC_GPIO_NUM;
-  config.pin_pwdn     = PWDN_GPIO_NUM;
-  config.pin_reset    = RESET_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000; // 20 MHz clean pixel clock
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode    = CAMERA_GRAB_LATEST;
+  config.grab_mode = CAMERA_GRAB_LATEST;
 
   if (psramFound()) {
     Serial.println("[CAM] PSRAM detected (4MB). Configuring VGA mode.");
-    config.frame_size   = FRAMESIZE_VGA; // 640x480 - smooth 15-20 FPS stream
+    config.frame_size = FRAMESIZE_VGA; // 640x480 - smooth 15-20 FPS stream
     config.jpeg_quality = 12;
-    config.fb_count     = 2;
-    config.fb_location  = CAMERA_FB_IN_PSRAM;
+    config.fb_count = 2;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
   } else {
-    Serial.println("[CAM] WARNING: No PSRAM detected. Falling back to QVGA 320x240.");
-    config.frame_size   = FRAMESIZE_QVGA;
+    Serial.println(
+        "[CAM] WARNING: No PSRAM detected. Falling back to QVGA 320x240.");
+    config.frame_size = FRAMESIZE_QVGA;
     config.jpeg_quality = 14;
-    config.fb_count     = 1;
-    config.fb_location  = CAMERA_FB_IN_DRAM;
+    config.fb_count = 1;
+    config.fb_location = CAMERA_FB_IN_DRAM;
   }
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    Serial.printf("[CAM ERROR] Camera initialization failed with error 0x%x\n", err);
-    Serial.println("[CAM ERROR] Please ensure the OV2640 camera ribbon is securely seated.");
+    Serial.printf("[CAM ERROR] Camera initialization failed with error 0x%x\n",
+                  err);
+    Serial.println("[CAM ERROR] Please ensure the OV2640 camera ribbon is "
+                   "securely seated.");
     cameraInitialized = false;
     return;
   }
 
   sensor_t *s = esp_camera_sensor_get();
   if (s != NULL) {
-    s->set_vflip(s, 1);       // Cane mount upright orientation
+    s->set_vflip(s, 1); // Cane mount upright orientation
     s->set_hmirror(s, 0);
-    s->set_brightness(s, 1);  // Indoor clarity boost
+    s->set_brightness(s, 1); // Indoor clarity boost
     s->set_contrast(s, 1);
   }
 
@@ -196,18 +205,22 @@ void setupWiFi() {
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("[WIFI] Connected! IP Address: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("[WIFI] Connected! IP Address: %s\n",
+                  WiFi.localIP().toString().c_str());
     Serial.printf("[WIFI] RSSI: %d dBm\n", WiFi.RSSI());
     if (MDNS.begin("intellicane")) {
       Serial.println("[MDNS] Hostname registered: http://intellicane.local");
     }
   } else {
     Serial.println("[WIFI] Primary Wi-Fi connection timed out.");
-    Serial.printf("[WIFI] Starting fallback SoftAP hotspot '%s'...\n", SOFTAP_SSID);
+    Serial.printf("[WIFI] Starting fallback SoftAP hotspot '%s'...\n",
+                  SOFTAP_SSID);
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(SOFTAP_SSID, SOFTAP_PASS);
-    Serial.printf("[WIFI] SoftAP active! IP Address: %s\n", WiFi.softAPIP().toString().c_str());
-    Serial.printf("[WIFI] Connect to hotspot '%s' (password: '%s')\n", SOFTAP_SSID, SOFTAP_PASS);
+    Serial.printf("[WIFI] SoftAP active! IP Address: %s\n",
+                  WiFi.softAPIP().toString().c_str());
+    Serial.printf("[WIFI] Connect to hotspot '%s' (password: '%s')\n",
+                  SOFTAP_SSID, SOFTAP_PASS);
     if (MDNS.begin("intellicane")) {
       Serial.println("[MDNS] Hostname registered: http://intellicane.local");
     }
@@ -231,7 +244,7 @@ void setFlashLed(bool on) {
 // ============================================================================
 // Ultra-Fast Frame Capture Helper
 // ============================================================================
-camera_fb_t* captureFrame() {
+camera_fb_t *captureFrame() {
   if (!cameraInitialized) {
     Serial.println("[CAM] Error: Camera is not initialized.");
     return nullptr;
@@ -242,7 +255,8 @@ camera_fb_t* captureFrame() {
     delay(30);
   }
 
-  // With CAMERA_GRAB_LATEST and fb_count=2, this returns the freshest frame instantly (<15ms)
+  // With CAMERA_GRAB_LATEST and fb_count=2, this returns the freshest frame
+  // instantly (<15ms)
   camera_fb_t *fb = esp_camera_fb_get();
 
   if (ENABLE_FLASH_ON_CAPTURE) {
@@ -273,23 +287,36 @@ String performSceneDescription() {
     return "{\"status\":\"error\",\"message\":\"Camera capture failed\"}";
   }
 
-  Serial.printf("[CAM] Frame captured: %u bytes (%dx%d)\n", fb->len, fb->width, fb->height);
+  Serial.printf("[CAM] Frame captured: %u bytes (%dx%d)\n", fb->len, fb->width,
+                fb->height);
 
   String resultJson = "";
   String apiKey = String(GEMINI_API_KEY);
 
   // Check if live Gemini API is configured
   if (apiKey.length() > 5 && apiKey != "YOUR_GEMINI_API_KEY") {
-    Serial.println("[AI VISION] Querying Google Gemini Multimodal Vision API...");
+    Serial.println(
+        "[AI VISION] Querying Google Gemini Multimodal Vision API...");
     resultJson = callGeminiVision(fb);
+
+    // Auto-retry once after 1.2s if Google returns a temporary 503 spike
+    if (resultJson.indexOf("503") >= 0) {
+      Serial.println(
+          "[AI VISION] 503 Server Busy detected. Auto-retrying in 1.2s...");
+      delay(1200);
+      resultJson = callGeminiVision(fb);
+    }
   } else {
     // Bench test / fallback mode
-    Serial.println("[AI VISION] Notice: GEMINI_API_KEY not configured. Running bench assistance model.");
+    Serial.println("[AI VISION] Notice: GEMINI_API_KEY not configured. Running "
+                   "bench assistance model.");
 
     JsonDocument doc;
     doc["status"] = "success";
     doc["mode"] = "bench_simulation";
-    doc["spoken_summary"] = "Path straight ahead at 12 o'clock is clear for 2 meters. A low obstacle is detected at 2 o'clock on your right. Step forward with caution.";
+    doc["spoken_summary"] = "Path straight ahead at 12 o'clock is clear for 2 "
+                            "meters. A low obstacle is detected at 2 o'clock "
+                            "on your right. Step forward with caution.";
 
     JsonArray hazards = doc["urgent_hazards"].to<JsonArray>();
     hazards.add("Low stool/obstacle at 2 o'clock (1.2m away)");
@@ -322,24 +349,28 @@ String performSceneDescription() {
   JsonDocument parsed;
   DeserializationError err = deserializeJson(parsed, resultJson);
   if (!err) {
-    if (parsed["status"].is<const char*>() && parsed["status"].as<String>() == "error") {
-      lastSpokenSummary = parsed["message"].is<const char*>() ? ("Error: " + parsed["message"].as<String>()) : "Scene analysis failed.";
+    if (parsed["status"].is<const char *>() &&
+        parsed["status"].as<String>() == "error") {
+      lastSpokenSummary = parsed["message"].is<const char *>()
+                              ? ("Error: " + parsed["message"].as<String>())
+                              : "Scene analysis failed.";
       lastUrgentHazards = "API Error";
       lastWalkablePath = "Caution advised";
     } else {
-      if (parsed["spoken_summary"].is<const char*>()) {
+      if (parsed["spoken_summary"].is<const char *>()) {
         lastSpokenSummary = parsed["spoken_summary"].as<String>();
       }
-      if (parsed["walkable_path"].is<const char*>()) {
+      if (parsed["walkable_path"].is<const char *>()) {
         lastWalkablePath = parsed["walkable_path"].as<String>();
       }
-      if (parsed["text_and_signs"].is<const char*>()) {
+      if (parsed["text_and_signs"].is<const char *>()) {
         lastTextSigns = parsed["text_and_signs"].as<String>();
       }
       if (parsed["urgent_hazards"].is<JsonArray>()) {
         String hList = "";
         for (JsonVariant v : parsed["urgent_hazards"].as<JsonArray>()) {
-          if (hList.length() > 0) hList += ", ";
+          if (hList.length() > 0)
+            hList += ", ";
           hList += v.as<String>();
         }
         lastUrgentHazards = (hList.length() > 0) ? hList : "None";
@@ -371,7 +402,8 @@ String performSceneDescription() {
 // ============================================================================
 // Chunked Base64 Streaming to WiFiClientSecure
 // ============================================================================
-void streamBase64(WiFiClientSecure &client, const uint8_t *data, size_t length) {
+void streamBase64(WiFiClientSecure &client, const uint8_t *data,
+                  size_t length) {
   char out[516];
   size_t outIdx = 0;
   size_t i = 0;
@@ -389,13 +421,13 @@ void streamBase64(WiFiClientSecure &client, const uint8_t *data, size_t length) 
     out[outIdx++] = (rem > 2) ? B64_TABLE[triple & 0x3F] : '=';
 
     if (outIdx >= 512) {
-      client.write((const uint8_t*)out, outIdx);
+      client.write((const uint8_t *)out, outIdx);
       outIdx = 0;
     }
   }
 
   if (outIdx > 0) {
-    client.write((const uint8_t*)out, outIdx);
+    client.write((const uint8_t *)out, outIdx);
   }
 }
 
@@ -407,27 +439,32 @@ String callGeminiVision(camera_fb_t *fb) {
   client.setInsecure(); // Skip certificate validation on embedded MCU
   client.setTimeout(15000);
 
-  const char* host = "generativelanguage.googleapis.com";
+  const char *host = "generativelanguage.googleapis.com";
   const int port = 443;
 
   if (!client.connect(host, port)) {
     Serial.println("[GEMINI ERROR] Connection to Google Gemini API failed.");
-    return "{\"status\":\"error\",\"message\":\"Failed to connect to Gemini API\"}";
+    return "{\"status\":\"error\",\"message\":\"Failed to connect to Gemini "
+           "API\"}";
   }
 
   // System instruction for blind assistance
-  const char* promptText =
-    "You are the AI vision assistant for IntelliCane, an intelligent white cane assisting a blind person. "
-    "Analyze this camera frame captured from the cane. "
-    "Identify urgent hazards (drop-offs, steps, curbs, low branches, approaching objects), "
-    "the clear walkable path, and surrounding objects with clock-face orientation (e.g. 12 o'clock, 2 o'clock) "
-    "and distance (close <1m, medium 1-3m, far >3m). "
-    "Format strictly as JSON with keys: "
-    "spoken_summary (1-3 clear sentences prioritizing hazards, walkable direction, and context), "
-    "urgent_hazards (array of strings), "
-    "walkable_path (string), "
-    "detected_objects (array of {name, position, distance, hazard_level}), "
-    "text_and_signs (string).";
+  const char *promptText =
+      "You are the AI vision assistant for IntelliCane, an intelligent white "
+      "cane assisting a blind person. "
+      "Analyze this camera frame captured from the cane. "
+      "Identify urgent hazards (drop-offs, steps, curbs, low branches, "
+      "approaching objects), "
+      "the clear walkable path, and surrounding objects with clock-face "
+      "orientation (e.g. 12 o'clock, 2 o'clock) "
+      "and distance (close <1m, medium 1-3m, far >3m). "
+      "Format strictly as JSON with keys: "
+      "spoken_summary (1-3 clear sentences prioritizing hazards, walkable "
+      "direction, and context), "
+      "urgent_hazards (array of strings), "
+      "walkable_path (string), "
+      "detected_objects (array of {name, position, distance, hazard_level}), "
+      "text_and_signs (string).";
 
   // Build JSON prefixes and calculate lengths
   String jsonPrefix = "{\"contents\":[{\"parts\":[{\"text\":\"";
@@ -437,7 +474,8 @@ String callGeminiVision(camera_fb_t *fb) {
   String jsonSuffix = "\"}}]}]}";
 
   size_t b64Length = 4 * ((fb->len + 2) / 3);
-  size_t totalContentLength = jsonPrefix.length() + b64Length + jsonSuffix.length();
+  size_t totalContentLength =
+      jsonPrefix.length() + b64Length + jsonSuffix.length();
 
   String path = "/v1beta/models/";
   path += GEMINI_MODEL;
@@ -475,7 +513,8 @@ String callGeminiVision(camera_fb_t *fb) {
     }
     String lineLower = line;
     lineLower.toLowerCase();
-    if (lineLower.startsWith("transfer-encoding:") && lineLower.indexOf("chunked") >= 0) {
+    if (lineLower.startsWith("transfer-encoding:") &&
+        lineLower.indexOf("chunked") >= 0) {
       isChunked = true;
     }
     if (lineLower.startsWith("content-length:")) {
@@ -489,9 +528,11 @@ String callGeminiVision(camera_fb_t *fb) {
     while (client.connected() || client.available()) {
       String chunkHex = client.readStringUntil('\n');
       chunkHex.trim();
-      if (chunkHex.length() == 0) continue;
+      if (chunkHex.length() == 0)
+        continue;
       long chunkSize = strtol(chunkHex.c_str(), NULL, 16);
-      if (chunkSize <= 0) break; // 0-size chunk marks end of stream
+      if (chunkSize <= 0)
+        break; // 0-size chunk marks end of stream
 
       while (chunkSize > 0 && (client.connected() || client.available())) {
         if (client.available()) {
@@ -529,10 +570,18 @@ String callGeminiVision(camera_fb_t *fb) {
 
   // If HTTP error (e.g. 404, 429, 500, 503)
   if (statusCode != 200 && statusCode != 0) {
-    Serial.printf("[GEMINI API ERROR] HTTP %d: %s\n", statusCode, responseBody.substring(0, 200).c_str());
+    Serial.printf("[GEMINI API ERROR] HTTP %d: %s\n", statusCode,
+                  responseBody.substring(0, 200).c_str());
     JsonDocument errDoc;
     errDoc["status"] = "error";
-    errDoc["message"] = "Gemini API HTTP " + String(statusCode);
+    if (statusCode == 503) {
+      errDoc["message"] = "Google AI servers are momentarily busy (high "
+                          "demand). Please tap Describe again.";
+    } else if (statusCode == 429) {
+      errDoc["message"] = "Gemini rate limit reached. Please wait a moment.";
+    } else {
+      errDoc["message"] = "Gemini API HTTP " + String(statusCode);
+    }
     String errStr;
     serializeJson(errDoc, errStr);
     return errStr;
@@ -550,13 +599,15 @@ String callGeminiVision(camera_fb_t *fb) {
   DeserializationError err = deserializeJson(geminiDoc, responseBody);
   if (err) {
     Serial.printf("[GEMINI PARSE ERROR] %s\n", err.c_str());
-    Serial.printf("[GEMINI RAW BODY] %s\n", responseBody.substring(0, 300).c_str());
-    return "{\"status\":\"error\",\"message\":\"Failed to parse Gemini response\"}";
+    Serial.printf("[GEMINI RAW BODY] %s\n",
+                  responseBody.substring(0, 300).c_str());
+    return "{\"status\":\"error\",\"message\":\"Failed to parse Gemini "
+           "response\"}";
   }
 
   // Check if error response object
   if (geminiDoc["error"].is<JsonObject>()) {
-    const char* errMsg = geminiDoc["error"]["message"];
+    const char *errMsg = geminiDoc["error"]["message"];
     Serial.printf("[GEMINI ERROR] %s\n", errMsg ? errMsg : "Unknown error");
     JsonDocument errDoc;
     errDoc["status"] = "error";
@@ -567,7 +618,8 @@ String callGeminiVision(camera_fb_t *fb) {
   }
 
   // Extract generated text
-  const char* rawText = geminiDoc["candidates"][0]["content"]["parts"][0]["text"];
+  const char *rawText =
+      geminiDoc["candidates"][0]["content"]["parts"][0]["text"];
   if (!rawText) {
     Serial.println("[GEMINI ERROR] No content parts returned in response.");
     return "{\"status\":\"error\",\"message\":\"Empty response from Gemini\"}";
@@ -605,7 +657,8 @@ esp_err_t stream_handler(httpd_req_t *req) {
   char part_buf[64];
 
   res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
-  if (res != ESP_OK) return res;
+  if (res != ESP_OK)
+    return res;
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "X-Framerate", "25");
@@ -617,7 +670,8 @@ esp_err_t stream_handler(httpd_req_t *req) {
       break;
     }
 
-    res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+    res =
+        httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
     if (res == ESP_OK) {
       size_t hlen = snprintf(part_buf, 64, _STREAM_PART, fb->len);
       res = httpd_resp_send_chunk(req, part_buf, hlen);
@@ -640,16 +694,15 @@ void startCameraStreamServer() {
   config.server_port = 81;
   config.ctrl_port = 32769;
 
-  httpd_uri_t stream_uri = {
-    .uri       = "/stream",
-    .method    = HTTP_GET,
-    .handler   = stream_handler,
-    .user_ctx  = NULL
-  };
+  httpd_uri_t stream_uri = {.uri = "/stream",
+                            .method = HTTP_GET,
+                            .handler = stream_handler,
+                            .user_ctx = NULL};
 
   if (httpd_start(&stream_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
-    Serial.println("[STREAM] Real-time 20+ FPS MJPEG stream active at port 81 (/stream)");
+    Serial.println(
+        "[STREAM] Real-time 20+ FPS MJPEG stream active at port 81 (/stream)");
   } else {
     Serial.println("[STREAM ERROR] Failed to start stream server on port 81.");
   }
@@ -1109,7 +1162,8 @@ void handleCapture() {
 void handleResolution() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   if (!server.hasArg("size")) {
-    server.send(400, "text/plain", "Missing size parameter: qvga, vga, or svga");
+    server.send(400, "text/plain",
+                "Missing size parameter: qvga, vga, or svga");
     return;
   }
 
@@ -1123,18 +1177,20 @@ void handleResolution() {
   }
 
   if (sizeStr == "qvga") {
-    s->set_framesize(s, FRAMESIZE_QVGA);   // 320x240 (Fastest 25+ FPS)
+    s->set_framesize(s, FRAMESIZE_QVGA); // 320x240 (Fastest 25+ FPS)
   } else if (sizeStr == "vga") {
-    s->set_framesize(s, FRAMESIZE_VGA);    // 640x480 (Balanced ~15 FPS)
+    s->set_framesize(s, FRAMESIZE_VGA); // 640x480 (Balanced ~15 FPS)
   } else if (sizeStr == "svga") {
-    s->set_framesize(s, FRAMESIZE_SVGA);   // 800x600 (High detail)
+    s->set_framesize(s, FRAMESIZE_SVGA); // 800x600 (High detail)
   } else {
-    server.send(400, "text/plain", "Invalid resolution: use qvga, vga, or svga");
+    server.send(400, "text/plain",
+                "Invalid resolution: use qvga, vga, or svga");
     return;
   }
 
   Serial.printf("[CAM] Resolution switched to: %s\n", sizeStr.c_str());
-  server.send(200, "application/json", "{\"status\":\"ok\",\"resolution\":\"" + sizeStr + "\"}");
+  server.send(200, "application/json",
+              "{\"status\":\"ok\",\"resolution\":\"" + sizeStr + "\"}");
 }
 
 void handleDescribe() {
@@ -1149,7 +1205,8 @@ void handleDescribe() {
 void handleFlashToggle() {
   setFlashLed(!flashState);
   server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "application/json", String("{\"flash\":") + (flashState ? "true" : "false") + "}");
+  server.send(200, "application/json",
+              String("{\"flash\":") + (flashState ? "true" : "false") + "}");
 }
 
 void handleStatus() {
@@ -1159,7 +1216,9 @@ void handleStatus() {
   doc["flash_led"] = flashState;
   doc["wifi_ssid"] = WiFi.SSID();
   doc["wifi_rssi"] = WiFi.RSSI();
-  doc["ip_address"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  doc["ip_address"] = (WiFi.status() == WL_CONNECTED)
+                          ? WiFi.localIP().toString()
+                          : WiFi.softAPIP().toString();
   doc["free_heap"] = ESP.getFreeHeap();
   doc["free_psram"] = psramFound() ? ESP.getFreePsram() : 0;
   doc["uptime_sec"] = millis() / 1000;
@@ -1174,7 +1233,8 @@ void handleStatus() {
 // Serial Command Processor
 // ============================================================================
 void handleSerialCommands() {
-  if (!Serial.available()) return;
+  if (!Serial.available())
+    return;
 
   String cmd = Serial.readStringUntil('\n');
   cmd.trim();
@@ -1185,7 +1245,8 @@ void handleSerialCommands() {
   } else if (cmd == "CAPTURE") {
     camera_fb_t *fb = captureFrame();
     if (fb) {
-      Serial.printf("[CAPTURE] Success: %u bytes (%dx%d)\n", fb->len, fb->width, fb->height);
+      Serial.printf("[CAPTURE] Success: %u bytes (%dx%d)\n", fb->len, fb->width,
+                    fb->height);
       esp_camera_fb_return(fb);
     } else {
       Serial.println("[CAPTURE] Failed to capture photo.");
@@ -1199,14 +1260,20 @@ void handleSerialCommands() {
   } else if (cmd == "STATUS") {
     Serial.println("\n--- IntelliCane Diagnostics ---");
     Serial.printf("Camera Ready:   %s\n", cameraInitialized ? "YES" : "NO");
-    Serial.printf("Wi-Fi Status:   %s\n", (WiFi.status() == WL_CONNECTED) ? "CONNECTED" : "SOFTAP");
-    Serial.printf("IP Address:     %s\n", (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString().c_str() : WiFi.softAPIP().toString().c_str());
+    Serial.printf("Wi-Fi Status:   %s\n",
+                  (WiFi.status() == WL_CONNECTED) ? "CONNECTED" : "SOFTAP");
+    Serial.printf("IP Address:     %s\n",
+                  (WiFi.status() == WL_CONNECTED)
+                      ? WiFi.localIP().toString().c_str()
+                      : WiFi.softAPIP().toString().c_str());
     Serial.printf("Free Heap:      %u bytes\n", ESP.getFreeHeap());
-    Serial.printf("Free PSRAM:     %u bytes\n", psramFound() ? ESP.getFreePsram() : 0);
+    Serial.printf("Free PSRAM:     %u bytes\n",
+                  psramFound() ? ESP.getFreePsram() : 0);
     Serial.printf("Flashlight:     %s\n", flashState ? "ON" : "OFF");
     Serial.println("--------------------------------\n");
   } else if (cmd == "HELP") {
-    Serial.println("\nCommands: DESCRIBE, CAPTURE, FLASH ON, FLASH OFF, STATUS, HELP\n");
+    Serial.println(
+        "\nCommands: DESCRIBE, CAPTURE, FLASH ON, FLASH OFF, STATUS, HELP\n");
   }
 }
 
@@ -1217,7 +1284,8 @@ void checkHardwareTrigger() {
   if (digitalRead(TRIGGER_PIN) == LOW) {
     if (millis() - lastTriggerTime > DEBOUNCE_DELAY_MS) {
       lastTriggerTime = millis();
-      Serial.println("[HARDWARE TRIGGER] Button pressed / signal detected on GPIO 13!");
+      Serial.println(
+          "[HARDWARE TRIGGER] Button pressed / signal detected on GPIO 13!");
       performSceneDescription();
     }
   }
