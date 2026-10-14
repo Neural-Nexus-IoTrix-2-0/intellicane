@@ -26,6 +26,7 @@ bool cameraInitialized = false;
 bool flashState = false;
 unsigned long lastTriggerTime = 0;
 const unsigned long DEBOUNCE_DELAY_MS = 1000;
+volatile bool isCapturingSnapshot = false;
 
 // Last scene analysis cache
 String lastSpokenSummary =
@@ -79,6 +80,7 @@ void handleResolution();
 // ============================================================================
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
+  Serial.setTimeout(150);
   delay(1000);
 
   Serial.println("\n================================================");
@@ -97,6 +99,13 @@ void setup() {
 
   // Initialize Camera
   setupCamera();
+
+  // Prime sensor pipeline: discard 2 warmup frames so AGC & AEC settle
+  for (int i = 0; i < 2; i++) {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb) esp_camera_fb_return(fb);
+    delay(40);
+  }
 
   // Initialize Wi-Fi
   setupWiFi();
@@ -149,13 +158,13 @@ void setupCamera() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000; // 20 MHz clean pixel clock
+  config.xclk_freq_hz = 16500000; // 16.5 MHz stable clock (prevents DMA timeouts & jitter)
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode = CAMERA_GRAB_LATEST;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; // Clean on-demand capture without queue stalls
 
   if (psramFound()) {
-    Serial.println("[CAM] PSRAM detected (4MB). Configuring VGA mode.");
-    config.frame_size = FRAMESIZE_VGA; // 640x480 - smooth 15-20 FPS stream
+    Serial.println("[CAM] PSRAM detected (4MB). Configuring QVGA mode.");
+    config.frame_size = FRAMESIZE_QVGA; // 320x240 - fast capture & high-speed BLE transfer
     config.jpeg_quality = 12;
     config.fb_count = 2;
     config.fb_location = CAMERA_FB_IN_PSRAM;
@@ -251,18 +260,28 @@ camera_fb_t *captureFrame() {
     return nullptr;
   }
 
+  isCapturingSnapshot = true;
+  // Yield to allow background stream task to release current frame buffer
+  vTaskDelay(pdMS_TO_TICKS(40));
+
   if (ENABLE_FLASH_ON_CAPTURE) {
     setFlashLed(true);
     delay(30);
   }
 
-  // With CAMERA_GRAB_LATEST and fb_count=2, this returns the freshest frame
-  // instantly (<15ms)
-  camera_fb_t *fb = esp_camera_fb_get();
+  camera_fb_t *fb = nullptr;
+  // Try up to 5 attempts with brief delay to acquire a clean frame buffer
+  for (int attempt = 0; attempt < 5; attempt++) {
+    fb = esp_camera_fb_get();
+    if (fb) break;
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 
   if (ENABLE_FLASH_ON_CAPTURE) {
     setFlashLed(false);
   }
+
+  isCapturingSnapshot = false;
 
   if (!fb) {
     Serial.println("[CAM ERROR] Failed to capture camera frame buffer.");
@@ -667,10 +686,15 @@ esp_err_t stream_handler(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "X-Framerate", "25");
 
   while (true) {
+    if (isCapturingSnapshot) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+      continue;
+    }
+
     fb = esp_camera_fb_get();
     if (!fb) {
-      res = ESP_FAIL;
-      break;
+      vTaskDelay(pdMS_TO_TICKS(30));
+      continue;
     }
 
     res =
@@ -1275,7 +1299,7 @@ void handleSerialCommands() {
 
   if (cmd == "DESCRIBE") {
     performSceneDescription();
-  } else if (cmd == "CAPTURE" || cmd == "CAPTURE_RAW" || cmd == "GET_PHOTO") {
+  } else if (cmd.indexOf("CAPTURE") >= 0 || cmd.indexOf("GET_PHOTO") >= 0 || cmd == "C") {
     sendFramedImageOverSerial();
   } else if (cmd == "FLASH ON") {
     setFlashLed(true);

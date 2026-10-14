@@ -286,20 +286,23 @@ void captureAndStreamImageToBle() {
         CamSerial.read();
     }
 
-    // 1. Send serial command and pulse trigger pin
+    // 1. Send clean serial command to ESP32-CAM (flush ensures bytes leave UART buffer)
     CamSerial.println("CAPTURE");
-    digitalWrite(PIN_CAM_TX, LOW);
-    delay(50);
-    digitalWrite(PIN_CAM_TX, HIGH);
+    CamSerial.flush();
 
     // 2. Wait for Start-of-Frame magic header: 0xAA 0x55 0x49 0x4D ("AA55IM")
     uint32_t startWait = millis();
     bool headerFound = false;
     uint8_t magicState = 0;
+    String diagBytes = "";
 
-    while (millis() - startWait < 3000) {
+    while (millis() - startWait < 4500) {
         if (CamSerial.available()) {
             uint8_t b = CamSerial.read();
+            if (diagBytes.length() < 160) {
+                if (b >= 32 && b <= 126) diagBytes += (char)b;
+                else diagBytes += "[" + String(b, HEX) + "]";
+            }
             if (magicState == 0 && b == 0xAA) magicState = 1;
             else if (magicState == 1 && b == 0x55) magicState = 2;
             else if (magicState == 2 && b == 0x49) magicState = 3;
@@ -315,7 +318,8 @@ void captureAndStreamImageToBle() {
     }
 
     if (!headerFound) {
-        Serial.println("[AI VISION] Camera capture timeout: header not received.");
+        Serial.printf("[AI VISION] Camera capture timeout: header not received. (Bytes read: %s)\n",
+                      diagBytes.length() > 0 ? diagBytes.c_str() : "None/Silent");
         if (bleClientConnected) {
             blePrintln("IMG:ERROR:CAMERA_TIMEOUT");
         }
@@ -736,8 +740,24 @@ void loop() {
 
         // Serial Command Monitor (Bench testing without button: type 'c' or 'describe' to trigger camera)
         if (Serial.available()) {
-            String cmd = Serial.readStringUntil('\n');
-            cmd.trim();
+            String rawCmd = Serial.readStringUntil('\n');
+            rawCmd.trim();
+            if (rawCmd.startsWith("cam ") || rawCmd.startsWith("CAM ")) {
+                String sub = rawCmd.substring(4);
+                Serial.printf("\n[C3->CAM BRIDGE] Sending '%s' to ESP32-CAM...\n", sub.c_str());
+                CamSerial.println(sub);
+                CamSerial.flush();
+                uint32_t w = millis();
+                while (millis() - w < 1500) {
+                    while (CamSerial.available()) {
+                        Serial.write(CamSerial.read());
+                    }
+                    delay(2);
+                }
+                Serial.println("\n[C3->CAM BRIDGE] End of response.\n");
+                return;
+            }
+            String cmd = rawCmd;
             cmd.toLowerCase();
             if (cmd == "c" || cmd == "cam" || cmd == "capture" || cmd == "describe") {
                 Serial.println("[Serial] AI Camera capture commanded via Serial Monitor!");
