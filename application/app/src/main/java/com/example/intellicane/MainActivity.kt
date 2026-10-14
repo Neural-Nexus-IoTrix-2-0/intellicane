@@ -130,6 +130,12 @@ class MainActivity : AppCompatActivity() {
 
     private val cccDescriptorUuid: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     private val descriptorQueue: Queue<Pair<BluetoothGattCharacteristic, BluetoothGattDescriptor>> = ArrayDeque()
+    private var bleWriteCharacteristic: BluetoothGattCharacteristic? = null
+
+    // AI Vision & Spoken Assistance
+    private var aiVisionCoordinator: com.example.intellicane.ai.AiVisionCoordinator? = null
+    private var btnDescribeScene: Button? = null
+    private var tvAiVisionStatus: TextView? = null
 
     // Presence & Location Sharing
     private var presenceRef: DatabaseReference? = null
@@ -297,15 +303,32 @@ class MainActivity : AppCompatActivity() {
             val line = bleBuffer.substring(0, newlineIndex).trim()
             bleBuffer.delete(0, newlineIndex + 1)
             if (line.isNotEmpty()) {
-                logToTerminal(line, isIncoming = true)
+                val handledByAi = aiVisionCoordinator?.processIncomingBleLine(line) ?: false
+                if (!handledByAi) {
+                    logToTerminal(line, isIncoming = true)
+                }
             }
         }
-        if (bleBuffer.length > 200) {
+        if (bleBuffer.length > 2000) {
             val pending = bleBuffer.toString().trim()
             bleBuffer.clear()
-            if (pending.isNotEmpty()) {
+            if (pending.isNotEmpty() && !pending.startsWith("IMG:")) {
                 logToTerminal(pending, isIncoming = true)
             }
+        }
+    }
+
+    private fun sendBleCommand(command: String) {
+        val gatt = bluetoothGatt ?: return
+        val writeChar = bleWriteCharacteristic ?: return
+        val data = command.toByteArray(Charsets.UTF_8)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeCharacteristic(writeChar, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+        } else {
+            @Suppress("DEPRECATION")
+            writeChar.value = data
+            @Suppress("DEPRECATION")
+            gatt.writeCharacteristic(writeChar)
         }
     }
 
@@ -316,6 +339,12 @@ class MainActivity : AppCompatActivity() {
                 val props = characteristic.properties
                 val isNotifiable = (props and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
                 val isIndicatable = (props and BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0
+                val isWritable = (props and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 ||
+                                 (props and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
+
+                if (isWritable) {
+                    bleWriteCharacteristic = characteristic
+                }
 
                 if (isNotifiable || isIndicatable) {
                     val descriptor = characteristic.getDescriptor(cccDescriptorUuid)
@@ -437,6 +466,39 @@ class MainActivity : AppCompatActivity() {
         tvUserDashboardSharing = findViewById(R.id.tvUserDashboardSharing)
         tvConnectionHint = findViewById(R.id.tvConnectionHint)
         btnToggleTerminal = findViewById(R.id.btnToggleTerminal)
+        btnDescribeScene = findViewById(R.id.btnDescribeScene)
+        tvAiVisionStatus = findViewById(R.id.tvAiVisionStatus)
+
+        aiVisionCoordinator = com.example.intellicane.ai.AiVisionCoordinator(
+            context = this,
+            sendBleCommand = { cmd -> sendBleCommand(cmd) },
+            uiListener = object : com.example.intellicane.ai.AiVisionCoordinator.UiListener {
+                override fun onStatusUpdate(status: String) {
+                    runOnUiThread {
+                        tvAiVisionStatus?.text = status
+                    }
+                }
+                override fun onImageReceived(bitmap: Bitmap) {
+                    runOnUiThread {
+                        logToTerminal("[AI] Photo received from cane (${bitmap.width}x${bitmap.height})")
+                    }
+                }
+                override fun onDescriptionReady(description: String) {
+                    runOnUiThread {
+                        tvAiVisionStatus?.text = description
+                        logToTerminal("[AI GUIDANCE] $description")
+                    }
+                }
+            }
+        )
+
+        btnDescribeScene?.setOnClickListener {
+            if (!isConnected) {
+                Toast.makeText(this, "Connect to IntelliCane via Bluetooth first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            aiVisionCoordinator?.requestCaptureAndDescribe()
+        }
 
         // Caretaker Status
         cardCaretakerStatus = findViewById(R.id.cardCaretakerStatus)
@@ -1371,6 +1433,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        aiVisionCoordinator?.shutdown()
         stopUserPresence()
         stopCaretakerMonitoring()
         disconnectBluetoothDevice()

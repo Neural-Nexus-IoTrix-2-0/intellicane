@@ -45,7 +45,10 @@ constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6
 constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
 constexpr uint8_t PIN_BUZZER      = 7;   // Buzzer (520 Hz low pleasant tone, high volume)
 constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
-constexpr uint8_t PIN_CAM_TRIG    = 21;  // Hardware snapshot pulse to ESP32-CAM GPIO 13
+constexpr uint8_t PIN_CAM_RX      = 20;  // High-Speed UART RX from ESP32-CAM TX (GPIO 1)
+constexpr uint8_t PIN_CAM_TX      = 21;  // High-Speed UART TX to ESP32-CAM RX (GPIO 3) or GPIO 13 pulse
+constexpr uint8_t PIN_CAM_TRIG    = 21;  // Backward-compatible trigger pulse alias
+HardwareSerial CamSerial(1);
 
 // Motor & Buzzer Configuration
 constexpr bool MOTOR_ACTIVE_LOW      = false;
@@ -99,7 +102,9 @@ uint32_t lastTelemMs  = 0;
 // Forward declarations
 void blePrint(const char* msg);
 void blePrintln(const char* msg);
+void blePrintln(const String& msg);
 void triggerCameraSnapshot();
+void captureAndStreamImageToBle();
 void setMotorFwdPwm(uint8_t duty);
 void setMotorGndPwm(uint8_t duty);
 void setBuzzer(bool state, uint16_t frequencyHz = PLEASANT_ALERT_TONE_HZ);
@@ -110,6 +115,28 @@ bool tryInitTOF(bool verbose = true);
 void scanI2C();
 
 // ============================================================================
+// Base64 Chunk Encoder for BLE Transmission
+// ============================================================================
+static const char B64_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+String base64EncodeChunk(const uint8_t* data, size_t length) {
+    String encoded = "";
+    encoded.reserve(((length + 2) / 3) * 4);
+    for (size_t i = 0; i < length; i += 3) {
+        uint32_t octet_a = i < length ? data[i] : 0;
+        uint32_t octet_b = (i + 1) < length ? data[i + 1] : 0;
+        uint32_t octet_c = (i + 2) < length ? data[i + 2] : 0;
+        uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
+
+        encoded += B64_CHARS[(triple >> 18) & 0x3F];
+        encoded += B64_CHARS[(triple >> 12) & 0x3F];
+        encoded += ((i + 1) < length) ? B64_CHARS[(triple >> 6) & 0x3F] : '=';
+        encoded += ((i + 2) < length) ? B64_CHARS[triple & 0x3F] : '=';
+    }
+    return encoded;
+}
+
+// ============================================================================
 // BLE Callbacks & Transmitter
 // ============================================================================
 void blePrint(const char* msg) {
@@ -118,7 +145,7 @@ void blePrint(const char* msg) {
     size_t offset = 0;
     while (offset < len) {
         size_t chunk = len - offset;
-        if (chunk > 20) chunk = 20;
+        if (chunk > 240) chunk = 240; // Safe size within negotiated 512 MTU
         pTxCharacteristic->setValue((uint8_t*)(msg + offset), chunk);
         pTxCharacteristic->notify();
         offset += chunk;
@@ -126,10 +153,13 @@ void blePrint(const char* msg) {
     }
 }
 
+void blePrintln(const String& msg) {
+    String withNewline = msg + "\r\n";
+    blePrint(withNewline.c_str());
+}
+
 void blePrintln(const char* msg) {
-    char buf[200];
-    snprintf(buf, sizeof(buf), "%s\r\n", msg);
-    blePrint(buf);
+    blePrintln(String(msg));
 }
 
 class CaneRxCallbacks : public BLECharacteristicCallbacks {
@@ -147,8 +177,7 @@ class CaneRxCallbacks : public BLECharacteristicCallbacks {
                 blePrintln("FALL_STATE:0");
             } else if (lower.indexOf("describe") >= 0 || lower.indexOf("cam") >= 0 || lower.indexOf("capture") >= 0) {
                 Serial.println("[BLE] AI camera capture triggered via Bluetooth command!");
-                triggerCameraSnapshot();
-                blePrintln(">>> [AI VISION] Camera capture triggered! Analyzing surroundings... <<<");
+                captureAndStreamImageToBle();
             } else if (lower.indexOf("motor") >= 0 || lower == "m" || lower == "test") {
                 Serial.println("[BLE] Motor diagnostic sequence requested!");
                 blePrintln("[TEST] Testing Motor 1 (GPIO 6) solo 500ms...");
@@ -240,13 +269,148 @@ void initBLE() {
 }
 
 // ============================================================================
-// Hardware Camera Interconnect (Triggering ESP32-CAM)
+// Hardware Camera Interconnect & BLE Image Stream
 // ============================================================================
+static uint8_t camImgBuf[40960];
+constexpr size_t BLE_RAW_CHUNK_SIZE = 180;
+
 void triggerCameraSnapshot() {
-    Serial.println("[INTER-MCU] Sending capture trigger pulse to ESP32-CAM (GPIO 21 -> GPIO 13)...");
-    digitalWrite(PIN_CAM_TRIG, LOW); // Active LOW trigger
-    delay(80);
-    digitalWrite(PIN_CAM_TRIG, HIGH);
+    captureAndStreamImageToBle();
+}
+
+void captureAndStreamImageToBle() {
+    Serial.println("\n[AI VISION] Capture initiated. Signaling ESP32-CAM...");
+    
+    // Clear any residual bytes in CamSerial buffer
+    while (CamSerial.available()) {
+        CamSerial.read();
+    }
+
+    // 1. Send serial command and pulse trigger pin
+    CamSerial.println("CAPTURE");
+    digitalWrite(PIN_CAM_TX, LOW);
+    delay(50);
+    digitalWrite(PIN_CAM_TX, HIGH);
+
+    // 2. Wait for Start-of-Frame magic header: 0xAA 0x55 0x49 0x4D ("AA55IM")
+    uint32_t startWait = millis();
+    bool headerFound = false;
+    uint8_t magicState = 0;
+
+    while (millis() - startWait < 3000) {
+        if (CamSerial.available()) {
+            uint8_t b = CamSerial.read();
+            if (magicState == 0 && b == 0xAA) magicState = 1;
+            else if (magicState == 1 && b == 0x55) magicState = 2;
+            else if (magicState == 2 && b == 0x49) magicState = 3;
+            else if (magicState == 3 && b == 0x4D) {
+                headerFound = true;
+                break;
+            } else {
+                magicState = (b == 0xAA) ? 1 : 0;
+            }
+        } else {
+            delay(2);
+        }
+    }
+
+    if (!headerFound) {
+        Serial.println("[AI VISION] Camera capture timeout: header not received.");
+        if (bleClientConnected) {
+            blePrintln("IMG:ERROR:CAMERA_TIMEOUT");
+        }
+        return;
+    }
+
+    // 3. Read metadata: length (4 bytes), width (2 bytes), height (2 bytes)
+    uint8_t meta[8];
+    size_t metaRead = 0;
+    startWait = millis();
+    while (metaRead < 8 && millis() - startWait < 1000) {
+        if (CamSerial.available()) {
+            meta[metaRead++] = CamSerial.read();
+        } else {
+            delay(1);
+        }
+    }
+
+    if (metaRead < 8) {
+        Serial.println("[AI VISION] Camera read error: incomplete header metadata.");
+        if (bleClientConnected) blePrintln("IMG:ERROR:INCOMPLETE_HEADER");
+        return;
+    }
+
+    uint32_t imgLen = (uint32_t)meta[0] | ((uint32_t)meta[1] << 8) |
+                      ((uint32_t)meta[2] << 16) | ((uint32_t)meta[3] << 24);
+    uint16_t imgW = (uint16_t)meta[4] | ((uint16_t)meta[5] << 8);
+    uint16_t imgH = (uint16_t)meta[6] | ((uint16_t)meta[7] << 8);
+
+    Serial.printf("[AI VISION] Incoming image from CAM: %u bytes (%dx%d)\n", imgLen, imgW, imgH);
+
+    if (imgLen == 0 || imgLen > sizeof(camImgBuf)) {
+        Serial.printf("[AI VISION] Invalid image length: %u\n", imgLen);
+        if (bleClientConnected) blePrintln("IMG:ERROR:IMAGE_TOO_LARGE");
+        return;
+    }
+
+    // 4. Read payload bytes
+    size_t bytesRead = 0;
+    startWait = millis();
+    while (bytesRead < imgLen && millis() - startWait < 3500) {
+        int avail = CamSerial.available();
+        if (avail > 0) {
+            size_t toRead = avail;
+            if (bytesRead + toRead > imgLen) toRead = imgLen - bytesRead;
+            CamSerial.readBytes((char*)&camImgBuf[bytesRead], toRead);
+            bytesRead += toRead;
+        } else {
+            delay(1);
+        }
+    }
+
+    if (bytesRead < imgLen) {
+        Serial.printf("[AI VISION] Incomplete payload: %u / %u bytes\n", bytesRead, imgLen);
+        if (bleClientConnected) blePrintln("IMG:ERROR:INCOMPLETE_PAYLOAD");
+        return;
+    }
+
+    // Read 2-byte checksum and 2-byte footer (0x55 0xAA)
+    uint8_t footer[4];
+    size_t footerRead = 0;
+    startWait = millis();
+    while (footerRead < 4 && millis() - startWait < 500) {
+        if (CamSerial.available()) {
+            footer[footerRead++] = CamSerial.read();
+        } else {
+            delay(1);
+        }
+    }
+
+    Serial.println("[AI VISION] Image successfully buffered in ESP32-C3 RAM!");
+
+    // 5. Stream over BLE to Phone
+    if (!bleClientConnected) {
+        Serial.println("[AI VISION] Phone not connected via BLE. Skipping wireless stream.");
+        return;
+    }
+
+    size_t totalChunks = (imgLen + BLE_RAW_CHUNK_SIZE - 1) / BLE_RAW_CHUNK_SIZE;
+    Serial.printf("[AI VISION] Streaming to Phone over BLE NUS: %u bytes in %u chunks...\n", imgLen, totalChunks);
+
+    blePrintln("IMG:START:" + String(imgLen) + ":" + String(totalChunks));
+    delay(20);
+
+    for (size_t c = 0; c < totalChunks; c++) {
+        size_t offset = c * BLE_RAW_CHUNK_SIZE;
+        size_t chunkSize = (offset + BLE_RAW_CHUNK_SIZE <= imgLen) ? BLE_RAW_CHUNK_SIZE : (imgLen - offset);
+        String b64 = base64EncodeChunk(&camImgBuf[offset], chunkSize);
+        String packet = "IMG:CHUNK:" + String(c) + ":" + b64;
+        blePrintln(packet);
+        delay(16); // Allow BLE radio queue to flush
+    }
+
+    blePrintln("IMG:END");
+    Serial.println("[AI VISION] Image stream to phone completed successfully!\n");
 }
 
 // ============================================================================
@@ -529,6 +693,12 @@ void setup() {
     scanI2C();
     tryInitMPU(true);
     tryInitTOF(true);
+
+    // Initialize Camera UART link (ESP32-C3 <-> ESP32-CAM)
+    pinMode(PIN_CAM_TX, OUTPUT);
+    digitalWrite(PIN_CAM_TX, HIGH); // Active LOW pulse, idle HIGH
+    CamSerial.begin(115200, SERIAL_8N1, PIN_CAM_RX, PIN_CAM_TX);
+    Serial.printf("[INIT] Camera UART link on RX: GPIO %d, TX: GPIO %d @ 115200 baud\n", PIN_CAM_RX, PIN_CAM_TX);
 
     initBLE();
 

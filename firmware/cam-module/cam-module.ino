@@ -64,6 +64,7 @@ String callGeminiVision(camera_fb_t *fb);
 void streamBase64(WiFiClientSecure &client, const uint8_t *data, size_t length);
 void handleSerialCommands();
 void checkHardwareTrigger();
+void sendFramedImageOverSerial();
 
 // Web Server Handlers (Port 80)
 void handleRoot();
@@ -1274,15 +1275,8 @@ void handleSerialCommands() {
 
   if (cmd == "DESCRIBE") {
     performSceneDescription();
-  } else if (cmd == "CAPTURE") {
-    camera_fb_t *fb = captureFrame();
-    if (fb) {
-      Serial.printf("[CAPTURE] Success: %u bytes (%dx%d)\n", fb->len, fb->width,
-                    fb->height);
-      esp_camera_fb_return(fb);
-    } else {
-      Serial.println("[CAPTURE] Failed to capture photo.");
-    }
+  } else if (cmd == "CAPTURE" || cmd == "CAPTURE_RAW" || cmd == "GET_PHOTO") {
+    sendFramedImageOverSerial();
   } else if (cmd == "FLASH ON") {
     setFlashLed(true);
     Serial.println("[FLASH] Flashlight turned ON.");
@@ -1318,7 +1312,54 @@ void checkHardwareTrigger() {
       lastTriggerTime = millis();
       Serial.println(
           "[HARDWARE TRIGGER] Button pressed / signal detected on GPIO 13!");
-      performSceneDescription();
+      sendFramedImageOverSerial();
     }
   }
+}
+
+// ============================================================================
+// High-Speed Framed Serial Stream (ESP32-CAM -> ESP32-C3)
+// ============================================================================
+void sendFramedImageOverSerial() {
+  setStatusLed(true);
+  camera_fb_t *fb = captureFrame();
+  if (!fb) {
+    Serial.println("ERR:CAM_CAPTURE_FAILED");
+    setStatusLed(false);
+    return;
+  }
+
+  // Framing Header: 0xAA 0x55 0x49 0x4D ("AA 55 I M")
+  uint8_t header[12];
+  header[0] = 0xAA;
+  header[1] = 0x55;
+  header[2] = 0x49; // 'I'
+  header[3] = 0x4D; // 'M'
+  uint32_t len = fb->len;
+  header[4] = (uint8_t)(len & 0xFF);
+  header[5] = (uint8_t)((len >> 8) & 0xFF);
+  header[6] = (uint8_t)((len >> 16) & 0xFF);
+  header[7] = (uint8_t)((len >> 24) & 0xFF);
+  uint16_t w = fb->width;
+  header[8] = (uint8_t)(w & 0xFF);
+  header[9] = (uint8_t)((w >> 8) & 0xFF);
+  uint16_t h = fb->height;
+  header[10] = (uint8_t)(h & 0xFF);
+  header[11] = (uint8_t)((h >> 8) & 0xFF);
+
+  uint16_t checksum = 0;
+  for (size_t i = 0; i < fb->len; i++) {
+    checksum += fb->buf[i];
+  }
+
+  Serial.write(header, 12);
+  Serial.write(fb->buf, fb->len);
+  Serial.write((uint8_t)(checksum & 0xFF));
+  Serial.write((uint8_t)((checksum >> 8) & 0xFF));
+  Serial.write(0x55);
+  Serial.write(0xAA);
+  Serial.flush();
+
+  esp_camera_fb_return(fb);
+  setStatusLed(false);
 }
