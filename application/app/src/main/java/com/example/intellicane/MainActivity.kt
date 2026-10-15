@@ -159,7 +159,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     // AI Vision & Spoken Assistance
     private var aiVisionCoordinator: com.example.intellicane.ai.AiVisionCoordinator? = null
-    private var btnDescribeScene: Button? = null
     private var tvAiVisionStatus: TextView? = null
 
     // Presence & Location Sharing
@@ -467,7 +466,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         tvUserDashboardSharing = findViewById(R.id.tvUserDashboardSharing)
         tvConnectionHint = findViewById(R.id.tvConnectionHint)
         btnToggleTerminal = findViewById(R.id.btnToggleTerminal)
-        btnDescribeScene = findViewById(R.id.btnDescribeScene)
         tvAiVisionStatus = findViewById(R.id.tvAiVisionStatus)
 
         aiVisionCoordinator = com.example.intellicane.ai.AiVisionCoordinator(
@@ -517,7 +515,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                             .append("Diagnostic Checklist:\n")
                             .append("• Ensure cane camera module is powered on.\n")
                             .append("• Keep cane within 5m BLE range.\n")
-                            .append("• Tap 'Describe Scene' to retry photo transfer.")
+                            .append("• Trigger photo capture on cane to retry transfer.")
                             .toString()
 
                         tvImageErrorOutput?.text = verboseLog
@@ -529,14 +527,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 }
             }
         )
-
-        btnDescribeScene?.setOnClickListener {
-            if (!isConnected) {
-                Toast.makeText(this, "Connect to IntelliCane via Bluetooth first", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            aiVisionCoordinator?.requestCaptureAndDescribe()
-        }
 
         // Caretaker Status
         cardCaretakerStatus = findViewById(R.id.cardCaretakerStatus)
