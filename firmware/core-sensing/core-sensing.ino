@@ -16,8 +16,8 @@
  *       Motor 1 (Primary Proximity): GPIO 6 (LEDC, 200 Hz brushed DC motor PWM)
  *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC, 200 Hz brushed DC motor PWM)
  *   - Alert Buzzer:                  GPIO 7 (short chirps; active DC or passive 800 Hz)
- *   - Pushbutton (Tactile Switch):   Freed / Not connected (AI triggered via Serial/BLE)
- *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13)
+ *   - Pushbutton (Tactile Switch):   GPIO 3 (Active LOW to GND, Internal pullup) + BOOT Button GPIO 9
+ *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13 or UART TX)
  *   - Onboard Status LED:            Freed / Not connected
  *   - Bluetooth Low Energy:          Nordic UART Service (NUS) Telemetry & Control
  * ============================================================================
@@ -40,11 +40,13 @@
 // ============================================================================
 constexpr uint8_t PIN_US_TRIG     = 0;   // Ultrasonic Trigger (HC-SR04)
 constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
+constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
+constexpr uint8_t PIN_BUTTON      = 3;   // Push Button: Triggers AI Camera capture (Active LOW to GND)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
 constexpr uint8_t PIN_BUZZER      = 7;   // Buzzer (520 Hz low pleasant tone, high volume)
-constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
+constexpr uint8_t PIN_BOOT_BTN    = 9;   // Onboard BOOT Button fallback for bench testing (Active LOW)
 constexpr uint8_t PIN_CAM_RX      = 20;  // High-Speed UART RX from ESP32-CAM TX (GPIO 1)
 constexpr uint8_t PIN_CAM_TX      = 21;  // High-Speed UART TX to ESP32-CAM RX (GPIO 3) or GPIO 13 pulse
 constexpr uint8_t PIN_CAM_TRIG    = 21;  // Backward-compatible trigger pulse alias
@@ -105,6 +107,7 @@ void blePrintln(const char* msg);
 void blePrintln(const String& msg);
 void triggerCameraSnapshot();
 void captureAndStreamImageToBle();
+void checkPushButton();
 void setMotorFwdPwm(uint8_t duty);
 void setMotorGndPwm(uint8_t duty);
 void setBuzzer(bool state, uint16_t frequencyHz = PLEASANT_ALERT_TONE_HZ);
@@ -266,6 +269,47 @@ void initBLE() {
     BLEDevice::startAdvertising();
 
     Serial.println("[BLE] Wireless Serial active. Discoverable as 'Intelligent-Cane'.");
+}
+
+// ============================================================================
+// Physical Push Button Monitor (AI Camera Snapshot Trigger)
+// ============================================================================
+void checkPushButton() {
+    uint32_t now = millis();
+    // Read external tactile switch (GPIO 3) or onboard BOOT button (GPIO 9)
+    bool rawPressed = (digitalRead(PIN_BUTTON) == LOW || digitalRead(PIN_BOOT_BTN) == LOW);
+
+    static bool buttonWasPressed = false;
+    static uint32_t lastDebounceMs = 0;
+    static uint32_t lastButtonTriggerMs = 0;
+
+    if (rawPressed != buttonWasPressed) {
+        if (now - lastDebounceMs > 35) { // 35ms debounce window
+            buttonWasPressed = rawPressed;
+            lastDebounceMs = now;
+
+            if (buttonWasPressed) { // Pressed down (falling edge)
+                if (now - lastButtonTriggerMs > 2500) { // 2.5s cooldown lockout
+                    lastButtonTriggerMs = now;
+                    Serial.println("\n[BUTTON] >>> AI Vision Push Button Pressed! Signaling Camera... <<<");
+
+                    // Immediate tactile and acoustic feedback (60ms chirp + haptic tap)
+                    setBuzzer(true, PLEASANT_ALERT_TONE_HZ);
+                    setMotorFwdPwm(200);
+                    delay(60);
+                    setBuzzer(false);
+                    setMotorFwdPwm(0);
+
+                    if (bleClientConnected) {
+                        blePrintln(">>> [AI VISION] Camera capture triggered via Physical Push Button <<<");
+                    }
+                    triggerCameraSnapshot();
+                } else {
+                    Serial.println("[BUTTON] Press ignored: Capture sequence in progress.");
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -657,6 +701,10 @@ void setup() {
     pinMode(PIN_BUZZER, OUTPUT);
     digitalWrite(PIN_BUZZER, LOW);
 
+    // AI Vision Push Button (Active LOW with internal pull-up)
+    pinMode(PIN_BUTTON, INPUT_PULLUP);
+    pinMode(PIN_BOOT_BTN, INPUT_PULLUP);
+
     // Single Ultrasonic Pins Setup (HC-SR04 with internal pull-down against floating noise)
     pinMode(PIN_US_TRIG, OUTPUT);
     pinMode(PIN_US_ECHO, INPUT_PULLDOWN);
@@ -719,6 +767,9 @@ void setup() {
 void loop() {
     uint32_t now = millis();
 
+    // Check physical push button (GPIO 3 or onboard BOOT button GPIO 9)
+    checkPushButton();
+
     // ------------------------------------------------------------------------
     // 1. Read Sensors every 35 ms
     // ------------------------------------------------------------------------
@@ -738,7 +789,7 @@ void loop() {
             tofDistanceCm = NAN;
         }
 
-        // Serial Command Monitor (Bench testing without button: type 'c' or 'describe' to trigger camera)
+        // Serial Command Monitor (Bench testing: type 'c', 'button', 'motor', 'buzz')
         if (Serial.available()) {
             String rawCmd = Serial.readStringUntil('\n');
             rawCmd.trim();
@@ -759,7 +810,7 @@ void loop() {
             }
             String cmd = rawCmd;
             cmd.toLowerCase();
-            if (cmd == "c" || cmd == "cam" || cmd == "capture" || cmd == "describe") {
+            if (cmd == "c" || cmd == "cam" || cmd == "capture" || cmd == "describe" || cmd == "button") {
                 Serial.println("[Serial] AI Camera capture commanded via Serial Monitor!");
                 triggerCameraSnapshot();
                 if (bleClientConnected) {
@@ -771,6 +822,12 @@ void loop() {
                 if (bleClientConnected) {
                     blePrintln("FALL_STATE:0");
                 }
+            } else if (cmd == "b" || cmd == "buzz" || cmd == "buzzer") {
+                Serial.println("[TEST] Testing buzzer for 400ms at 520 Hz...");
+                setBuzzer(true, PLEASANT_ALERT_TONE_HZ);
+                delay(400);
+                setBuzzer(false);
+                Serial.println("[TEST] Buzzer test complete.");
             } else if (cmd == "m" || cmd == "motor" || cmd == "test") {
                 Serial.println("\n[TEST] === Haptic Motor Diagnostic Sequence Started ===");
                 Serial.println("[TEST] Step 1: Testing Motor 1 (GPIO 6) solo for 500ms at full duty...");
