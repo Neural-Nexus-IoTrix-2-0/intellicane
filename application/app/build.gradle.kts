@@ -48,6 +48,7 @@ android {
 }
 
 dependencies {
+    implementation("com.google.android.gms:play-services-location:21.4.0")
     implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
@@ -63,4 +64,5 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-database")
     implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
 }

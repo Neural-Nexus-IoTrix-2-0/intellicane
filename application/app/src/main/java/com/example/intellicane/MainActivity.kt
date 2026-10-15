@@ -28,6 +28,12 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
@@ -59,13 +65,14 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.util.MapTileIndex
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.MapView
+import com.google.android.gms.maps.OnMapReadyCallback
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
+import com.google.android.gms.maps.model.MarkerOptions
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
@@ -73,7 +80,7 @@ import java.util.Locale
 import java.util.Queue
 import java.util.UUID
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
@@ -127,10 +134,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
     private lateinit var fabMyLocation: FloatingActionButton
     private lateinit var fabUserLocation: FloatingActionButton
+    private var googleMap: GoogleMap? = null
     private var userMarker: Marker? = null
     private var caretakerMarker: Marker? = null
     private var lastLocation: Location? = null
-    private var lastUserGeoPoint: GeoPoint? = null
+    private var lastUserLatLng: LatLng? = null
+    private var lastCaretakerLatLng: LatLng? = null
+    private var lastUserTitleText: String? = null
+    private var lastUserPinColor: Int = Color.parseColor("#E53935")
+
+    // Fused Location Services
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private var locationCallback: LocationCallback? = null
 
     // Bluetooth
     private var bluetoothGatt: BluetoothGatt? = null
@@ -173,32 +188,6 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
-
-    private val esriTileSource = object : OnlineTileSourceBase(
-        "Esri_WorldStreetMap",
-        0, 18, 256, "",
-        arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/")
-    ) {
-        override fun getTileURLString(pMapTileIndex: Long): String {
-            return baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" +
-                    MapTileIndex.getY(pMapTileIndex) + "/" +
-                    MapTileIndex.getX(pMapTileIndex)
-        }
-    }
-
-    private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            lastLocation = location
-            if (isLocationSharingActive) {
-                sendCurrentLocationToFirestore()
-            }
-        }
-
-        @Deprecated("Deprecated in Java")
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
 
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -443,9 +432,7 @@ class MainActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
-
-        Configuration.getInstance().userAgentValue = "IntelliCaneApp/1.0 (Android; Navigation)"
-        Configuration.getInstance().load(applicationContext, getSharedPreferences("osm_prefs", MODE_PRIVATE))
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
@@ -581,13 +568,11 @@ class MainActivity : AppCompatActivity() {
 
         cardMap = findViewById(R.id.cardMap)
         mapView = findViewById(R.id.mapView)
+        mapView.onCreate(savedInstanceState)
+        mapView.getMapAsync(this)
+
         fabMyLocation = findViewById(R.id.fabMyLocation)
         fabUserLocation = findViewById(R.id.fabUserLocation)
-
-        mapView.setTileSource(esriTileSource)
-        mapView.maxZoomLevel = 18.0
-        mapView.minZoomLevel = 3.0
-        mapView.setMultiTouchControls(true)
 
         tvClearTerminal.setOnClickListener {
             tvTerminalOutput.text = "> Terminal cleared.\n"
@@ -598,10 +583,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         fabUserLocation.setOnClickListener {
-            val userGeo = lastUserGeoPoint ?: userMarker?.position
-            if (userGeo != null) {
-                mapView.controller.setZoom(17.5)
-                mapView.controller.animateTo(userGeo)
+            val target = lastUserLatLng ?: userMarker?.position
+            if (target != null && googleMap != null) {
+                googleMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(target, 18f))
                 Toast.makeText(this, "Centering on User's location", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "User's location is not available yet.", Toast.LENGTH_SHORT).show()
@@ -609,9 +593,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         fabMyLocation.setOnClickListener {
-            lastLocation?.let {
-                updateCaretakerMapLocation(it.latitude, it.longitude)
-            } ?: run {
+            val target = lastCaretakerLatLng ?: caretakerMarker?.position
+            if (target != null && googleMap != null) {
+                googleMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(target, 18f))
+            } else {
                 startLocationUpdates()
             }
         }
@@ -831,22 +816,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-        if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            if (lastGps != null) {
-                lastLocation = lastGps
-                sendCurrentLocationToFirestore()
-                return
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { location ->
+                if (location != null) {
+                    lastLocation = location
+                    sendCurrentLocationToFirestore()
+                }
             }
-        }
-        if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            if (lastNet != null) {
-                lastLocation = lastNet
-                sendCurrentLocationToFirestore()
+            .addOnFailureListener { e ->
+                logToTerminal("[SYS] High-accuracy location request failed: ${e.localizedMessage}")
             }
-        }
     }
 
     private fun sendCurrentLocationToFirestore() {
@@ -1199,75 +1178,61 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
-    private fun updateUserMapLocation(lat: Double, lon: Double, titleText: String, pinColor: Int = Color.parseColor("#E53935")) {
-        val geoPoint = GeoPoint(lat, lon)
-        lastUserGeoPoint = geoPoint
-        mapView.controller.setZoom(17.5)
-        mapView.controller.animateTo(geoPoint)
+    override fun onMapReady(map: GoogleMap) {
+        googleMap = map
+        googleMap?.mapType = GoogleMap.MAP_TYPE_NORMAL
+        googleMap?.uiSettings?.isZoomControlsEnabled = true
+        googleMap?.uiSettings?.isCompassEnabled = true
 
-        userMarker?.let { mapView.overlays.remove(it) }
-        val marker = Marker(mapView)
-        marker.position = geoPoint
-        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        marker.title = titleText
-        marker.snippet = "Lat: %.5f, Lon: %.5f".format(lat, lon)
-        marker.icon = createColoredMarkerIcon(pinColor)
-        mapView.overlays.add(marker)
-        userMarker = marker
-        mapView.invalidate()
+        lastUserLatLng?.let {
+            updateUserMapLocation(it.latitude, it.longitude, lastUserTitleText ?: "User's Location", lastUserPinColor)
+        }
+        lastCaretakerLatLng?.let {
+            updateCaretakerMapLocation(it.latitude, it.longitude)
+        }
+    }
+
+    private fun updateUserMapLocation(lat: Double, lon: Double, titleText: String, pinColor: Int = Color.parseColor("#E53935")) {
+        val latLng = LatLng(lat, lon)
+        lastUserLatLng = latLng
+        lastUserTitleText = titleText
+        lastUserPinColor = pinColor
+
+        val gMap = googleMap ?: return
+
+        userMarker?.remove()
+
+        val hue = when (pinColor) {
+            Color.parseColor("#FF9800") -> BitmapDescriptorFactory.HUE_ORANGE
+            Color.parseColor("#757575") -> BitmapDescriptorFactory.HUE_VIOLET
+            else -> BitmapDescriptorFactory.HUE_RED
+        }
+
+        val markerOptions = MarkerOptions()
+            .position(latLng)
+            .title(titleText)
+            .snippet("Lat: %.5f, Lon: %.5f".format(lat, lon))
+            .icon(BitmapDescriptorFactory.defaultMarker(hue))
+
+        userMarker = gMap.addMarker(markerOptions)
+        gMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 17f))
     }
 
     private fun updateCaretakerMapLocation(lat: Double, lon: Double) {
-        val geoPoint = GeoPoint(lat, lon)
-        mapView.controller.setZoom(17.5)
-        mapView.controller.animateTo(geoPoint)
+        val latLng = LatLng(lat, lon)
+        lastCaretakerLatLng = latLng
 
-        caretakerMarker?.let { mapView.overlays.remove(it) }
-        val marker = Marker(mapView)
-        marker.position = geoPoint
-        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        marker.title = "Caretaker's Location (You)"
-        marker.snippet = "Lat: %.5f, Lon: %.5f".format(lat, lon)
-        marker.icon = createColoredMarkerIcon(Color.parseColor("#2196F3")) // Royal Blue Pin
-        mapView.overlays.add(marker)
-        caretakerMarker = marker
-        mapView.invalidate()
-    }
+        val gMap = googleMap ?: return
 
-    private fun createColoredMarkerIcon(colorInt: Int): Drawable {
-        val density = resources.displayMetrics.density
-        val size = (38 * density).toInt()
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
+        caretakerMarker?.remove()
 
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = colorInt
-            style = Paint.Style.FILL
-        }
+        val markerOptions = MarkerOptions()
+            .position(latLng)
+            .title("Caretaker's Location (You)")
+            .snippet("Lat: %.5f, Lon: %.5f".format(lat, lon))
+            .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
 
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeWidth = 3f * density
-        }
-
-        val innerDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-        }
-
-        val centerX = size / 2f
-        val centerY = size / 2f
-        val radius = (size / 2f) - (2f * density)
-
-        // Draw outer colored pin circle
-        canvas.drawCircle(centerX, centerY, radius, paint)
-        // Draw white border
-        canvas.drawCircle(centerX, centerY, radius, borderPaint)
-        // Draw inner white center dot
-        canvas.drawCircle(centerX, centerY, radius * 0.35f, innerDotPaint)
-
-        return BitmapDrawable(resources, bitmap)
+        caretakerMarker = gMap.addMarker(markerOptions)
     }
 
     private fun stopCaretakerMonitoring() {
@@ -1292,22 +1257,47 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-
-        if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, locationListener)
-            val lastGps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            if (lastGps != null) {
-                lastLocation = lastGps
+        if (locationCallback == null) {
+            locationCallback = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    val location = result.lastLocation ?: return
+                    lastLocation = location
+                    if (isLocationSharingActive) {
+                        sendCurrentLocationToFirestore()
+                    }
+                    if (auth.currentUser != null) {
+                        updateCaretakerMapLocation(location.latitude, location.longitude)
+                    }
+                }
             }
         }
 
-        if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 5f, locationListener)
-            val lastNet = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            if (lastNet != null && lastLocation == null) {
-                lastLocation = lastNet
+        val locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            2000L // 2 seconds update interval
+        ).apply {
+            setMinUpdateIntervalMillis(1000L)
+            setMinUpdateDistanceMeters(1f) // 1 meter distance threshold
+        }.build()
+
+        locationCallback?.let { callback ->
+            fusedLocationClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
+        }
+
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { location ->
+                if (location != null) {
+                    lastLocation = location
+                    if (isLocationSharingActive) {
+                        sendCurrentLocationToFirestore()
+                    }
+                }
             }
+    }
+
+    private fun stopLocationUpdates() {
+        locationCallback?.let { callback ->
+            fusedLocationClient.removeLocationUpdates(callback)
         }
     }
 
@@ -1425,16 +1415,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        mapView.onResume()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        mapView.onPause()
-    }
-
     private fun updateFallStateInFirestore(fallDetected: Boolean) {
         val uid = auth.currentUser?.uid
         if (uid.isNullOrEmpty()) {
@@ -1511,11 +1491,33 @@ class MainActivity : AppCompatActivity() {
         notificationManager.notify(1001, notification)
     }
 
+    override fun onResume() {
+        super.onResume()
+        mapView.onResume()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mapView.onPause()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        mapView.onDestroy()
         aiVisionCoordinator?.shutdown()
         stopUserPresence()
         stopCaretakerMonitoring()
+        stopLocationUpdates()
         disconnectBluetoothDevice()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        mapView.onLowMemory()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        mapView.onSaveInstanceState(outState)
     }
 }
