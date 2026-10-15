@@ -11,8 +11,10 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
@@ -184,6 +186,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private var lastFallAlertTimestamp: Long = 0L
     private var isCaretakerFallAlertActive = false
 
+    private var isUserModeActive = false
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
@@ -221,6 +225,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 runOnUiThread {
                     btnBluetooth.isEnabled = true
                     updateBluetoothButtonState()
+                    updateForegroundServiceState()
                     Toast.makeText(this@MainActivity, "Connected to $targetMacAddress via BLE", Toast.LENGTH_SHORT).show()
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -234,6 +239,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 runOnUiThread {
                     btnBluetooth.isEnabled = true
                     updateBluetoothButtonState()
+                    updateForegroundServiceState()
                     if (wasConnected) {
                         Toast.makeText(this@MainActivity, "Disconnected from $targetMacAddress", Toast.LENGTH_SHORT).show()
                     } else {
@@ -662,6 +668,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 
+        ServiceListener.onDisconnectBle = {
+            runOnUiThread {
+                if (isConnected) {
+                    disconnectBluetoothDevice()
+                }
+            }
+        }
+
+        ServiceListener.onStopLocationSharing = {
+            runOnUiThread {
+                if (isLocationSharingActive) {
+                    stopLocationSharing()
+                }
+            }
+        }
+
         checkAuthState()
     }
 
@@ -776,6 +798,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         locationSharingHandler.removeCallbacks(locationSharingRunnable)
         locationSharingHandler.post(locationSharingRunnable)
+        updateForegroundServiceState()
         Toast.makeText(this, "Location sharing started (updates every 30s)", Toast.LENGTH_SHORT).show()
     }
 
@@ -797,6 +820,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         db.collection("users").document(uid).collection("location").document("current")
             .set(stopMap, SetOptions.merge())
 
+        updateForegroundServiceState()
         Toast.makeText(this, "Location sharing stopped", Toast.LENGTH_SHORT).show()
     }
 
@@ -904,6 +928,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun showRoleSelectionScreen() {
         hideLoading()
+        isUserModeActive = false
+        IntelliCaneForegroundService.stopService(this)
         layoutSelection.visibility = View.VISIBLE
         layoutUserDashboard.visibility = View.GONE
         btnToggleLocationSharing.visibility = View.GONE
@@ -993,6 +1019,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         if (isLocationSharingActive) {
             stopLocationSharing()
         }
+        isUserModeActive = false
+        IntelliCaneForegroundService.stopService(this)
         stopCaretakerMonitoring()
         stopUserPresence()
         auth.signOut()
@@ -1007,6 +1035,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         layoutSelection.visibility = View.GONE
 
         if (role == "user") {
+            isUserModeActive = true
             stopCaretakerMonitoring()
             layoutUserDashboard.visibility = View.VISIBLE
             btnToggleLocationSharing.visibility = View.VISIBLE
@@ -1019,8 +1048,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             cardMap.visibility = View.GONE
             cardCaretakerStatus.visibility = View.GONE
             updateBluetoothButtonState()
+            updateForegroundServiceState()
             startLocationUpdates()
         } else if (role == "caretaker") {
+            isUserModeActive = false
+            IntelliCaneForegroundService.stopService(this)
             layoutUserDashboard.visibility = View.GONE
             btnToggleLocationSharing.visibility = View.GONE
             btnToggleTerminal.visibility = View.GONE
@@ -1377,6 +1409,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         isConnected = false
         descriptorQueue.clear()
         updateBluetoothButtonState()
+        updateForegroundServiceState()
         logToTerminal("[SYS] Disconnected by user.")
         Toast.makeText(this, "Disconnected from $targetMacAddress", Toast.LENGTH_SHORT).show()
     }
@@ -1402,6 +1435,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             if (::tvConnectionHint.isInitialized) {
                 tvConnectionHint.text = "Tap to connect to IntelliCane"
             }
+        }
+    }
+
+    private fun updateForegroundServiceState() {
+        if (isUserModeActive && (isConnected || isLocationSharingActive)) {
+            IntelliCaneForegroundService.startService(this, isConnected, isLocationSharingActive)
+        } else if (!isConnected && !isLocationSharingActive) {
+            IntelliCaneForegroundService.stopService(this)
+        } else if (isUserModeActive) {
+            IntelliCaneForegroundService.updateState(this, isConnected, isLocationSharingActive)
         }
     }
 
@@ -1494,6 +1537,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onDestroy() {
         super.onDestroy()
         mapView.onDestroy()
+        ServiceListener.onDisconnectBle = null
+        ServiceListener.onStopLocationSharing = null
         aiVisionCoordinator?.shutdown()
         stopUserPresence()
         stopCaretakerMonitoring()
