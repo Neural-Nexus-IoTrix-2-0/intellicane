@@ -43,7 +43,7 @@
         </service>
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyDDh12qeo76E3rlQyCx-Btp1rCcLK5JjCw" />
+            android:value="${mapsApiKey}" />
     </application>
 
 </manifest>
