@@ -30,6 +30,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -60,12 +61,14 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
+import java.util.Date
 import java.util.Locale
 import java.util.Queue
 import java.util.UUID
@@ -112,6 +115,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTerminalOutput: TextView
     private lateinit var tvClearTerminal: TextView
     private lateinit var tvCloseTerminal: TextView
+
+    private lateinit var cardImagePreview: CardView
+    private lateinit var ivImagePreview: ImageView
+    private var scrollImageError: ScrollView? = null
+    private var tvImageErrorOutput: TextView? = null
+    private lateinit var tvCloseImagePreview: TextView
+    private lateinit var btnToggleImage: Button
 
     private lateinit var cardMap: CardView
     private lateinit var mapView: MapView
@@ -166,7 +176,7 @@ class MainActivity : AppCompatActivity() {
 
     private val esriTileSource = object : OnlineTileSourceBase(
         "Esri_WorldStreetMap",
-        0, 19, 256, "",
+        0, 18, 256, "",
         arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/")
     ) {
         override fun getTileURLString(pMapTileIndex: Long): String {
@@ -482,15 +492,52 @@ class MainActivity : AppCompatActivity() {
                         tvAiVisionStatus?.text = status
                     }
                 }
+                override fun onTransferStarted() {
+                    runOnUiThread {
+                        tvImageErrorOutput?.text = ""
+                        scrollImageError?.visibility = View.GONE
+                        ivImagePreview.visibility = View.VISIBLE
+                        ivImagePreview.setImageDrawable(null)
+                    }
+                }
                 override fun onImageReceived(bitmap: Bitmap) {
                     runOnUiThread {
                         logToTerminal("[AI] Photo received from cane (${bitmap.width}x${bitmap.height})")
+                        tvImageErrorOutput?.text = ""
+                        scrollImageError?.visibility = View.GONE
+                        ivImagePreview.visibility = View.VISIBLE
+                        ivImagePreview.setImageBitmap(bitmap)
+                        cardImagePreview.visibility = View.VISIBLE
+                        btnToggleImage.bringToFront()
                     }
                 }
                 override fun onDescriptionReady(description: String) {
                     runOnUiThread {
                         tvAiVisionStatus?.text = description
                         logToTerminal("[AI GUIDANCE] $description")
+                    }
+                }
+                override fun onTransferError(reason: String) {
+                    runOnUiThread {
+                        val timeStr = SimpleDateFormat("hh:mm:ss a", Locale.getDefault()).format(Date())
+                        val verboseLog = StringBuilder()
+                            .append("⚠️ IMAGE TRANSFER FAILED\n")
+                            .append("Time: $timeStr\n")
+                            .append("-----------------------------\n")
+                            .append("Error Details:\n")
+                            .append(reason)
+                            .append("\n\n")
+                            .append("Diagnostic Checklist:\n")
+                            .append("• Ensure cane camera module is powered on.\n")
+                            .append("• Keep cane within 5m BLE range.\n")
+                            .append("• Tap 'Describe Scene' to retry photo transfer.")
+                            .toString()
+
+                        tvImageErrorOutput?.text = verboseLog
+                        scrollImageError?.visibility = View.VISIBLE
+                        ivImagePreview.visibility = View.GONE
+                        cardImagePreview.visibility = View.VISIBLE
+                        btnToggleImage.bringToFront()
                     }
                 }
             }
@@ -525,12 +572,21 @@ class MainActivity : AppCompatActivity() {
         tvClearTerminal = findViewById(R.id.tvClearTerminal)
         tvCloseTerminal = findViewById(R.id.tvCloseTerminal)
 
+        cardImagePreview = findViewById(R.id.cardImagePreview)
+        ivImagePreview = findViewById(R.id.ivImagePreview)
+        scrollImageError = findViewById(R.id.scrollImageError)
+        tvImageErrorOutput = findViewById(R.id.tvImageErrorOutput)
+        tvCloseImagePreview = findViewById(R.id.tvCloseImagePreview)
+        btnToggleImage = findViewById(R.id.btnToggleImage)
+
         cardMap = findViewById(R.id.cardMap)
         mapView = findViewById(R.id.mapView)
         fabMyLocation = findViewById(R.id.fabMyLocation)
         fabUserLocation = findViewById(R.id.fabUserLocation)
 
         mapView.setTileSource(esriTileSource)
+        mapView.maxZoomLevel = 18.0
+        mapView.minZoomLevel = 3.0
         mapView.setMultiTouchControls(true)
 
         tvClearTerminal.setOnClickListener {
@@ -544,7 +600,7 @@ class MainActivity : AppCompatActivity() {
         fabUserLocation.setOnClickListener {
             val userGeo = lastUserGeoPoint ?: userMarker?.position
             if (userGeo != null) {
-                mapView.controller.setZoom(18.5)
+                mapView.controller.setZoom(17.5)
                 mapView.controller.animateTo(userGeo)
                 Toast.makeText(this, "Centering on User's location", Toast.LENGTH_SHORT).show()
             } else {
@@ -574,6 +630,19 @@ class MainActivity : AppCompatActivity() {
             } else {
                 cardTerminal.visibility = View.VISIBLE
                 btnToggleTerminal.bringToFront()
+            }
+        }
+
+        tvCloseImagePreview.setOnClickListener {
+            cardImagePreview.visibility = View.GONE
+        }
+
+        btnToggleImage.setOnClickListener {
+            if (cardImagePreview.visibility == View.VISIBLE) {
+                cardImagePreview.visibility = View.GONE
+            } else {
+                cardImagePreview.visibility = View.VISIBLE
+                btnToggleImage.bringToFront()
             }
         }
 
@@ -870,7 +939,9 @@ class MainActivity : AppCompatActivity() {
         layoutUserDashboard.visibility = View.GONE
         btnToggleLocationSharing.visibility = View.GONE
         btnToggleTerminal.visibility = View.GONE
+        btnToggleImage.visibility = View.GONE
         cardTerminal.visibility = View.GONE
+        cardImagePreview.visibility = View.GONE
         cardMap.visibility = View.GONE
         cardCaretakerStatus.visibility = View.GONE
     }
@@ -972,7 +1043,10 @@ class MainActivity : AppCompatActivity() {
             btnToggleLocationSharing.visibility = View.VISIBLE
             btnToggleTerminal.visibility = View.VISIBLE
             btnToggleTerminal.bringToFront()
+            btnToggleImage.visibility = View.VISIBLE
+            btnToggleImage.bringToFront()
             cardTerminal.visibility = View.GONE
+            cardImagePreview.visibility = View.GONE
             cardMap.visibility = View.GONE
             cardCaretakerStatus.visibility = View.GONE
             updateBluetoothButtonState()
@@ -981,7 +1055,9 @@ class MainActivity : AppCompatActivity() {
             layoutUserDashboard.visibility = View.GONE
             btnToggleLocationSharing.visibility = View.GONE
             btnToggleTerminal.visibility = View.GONE
+            btnToggleImage.visibility = View.GONE
             cardTerminal.visibility = View.GONE
+            cardImagePreview.visibility = View.GONE
             cardMap.visibility = View.VISIBLE
             cardCaretakerStatus.visibility = View.VISIBLE
 
@@ -1126,7 +1202,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateUserMapLocation(lat: Double, lon: Double, titleText: String, pinColor: Int = Color.parseColor("#E53935")) {
         val geoPoint = GeoPoint(lat, lon)
         lastUserGeoPoint = geoPoint
-        mapView.controller.setZoom(18.0)
+        mapView.controller.setZoom(17.5)
         mapView.controller.animateTo(geoPoint)
 
         userMarker?.let { mapView.overlays.remove(it) }
