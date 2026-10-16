@@ -12,9 +12,9 @@ This document details the active electrical wiring for the multi-sensor Intellig
 | **Ultrasonic Sensor (1× HC-SR04)** | ECHO | **GPIO 1** | Direct connection to GPIO 1 (bench prototype) |
 | **Shared I2C Bus** | SDA | **GPIO 4** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
 | **Shared I2C Bus** | SCL | **GPIO 5** | Hardware I2C at 100 kHz; shared by **TOF10120** (`0x52`) and **MPU6050** (`0x68`) |
-| **Motor 1 (Primary Proximity)** | IN / SIG | **GPIO 6** | Forward obstacle proximity tactile feedback (0–60 cm); LEDC, 200 Hz brushed DC PWM |
+| **Vibration Motor** | IN / SIG | **GPIO 2** | All proximity tactile feedback below 60 cm; LEDC, 200 Hz brushed DC PWM |
 | **Active Buzzer** | Signal | **GPIO 7** | Short proximity chirps; silent during a fall (Active HIGH DC drive) |
-| **Motor 2 (Dual Proximity Haptic)** | IN / SIG | **GPIO 2** | Dual handle tactile feedback; LEDC, 200 Hz brushed DC PWM |
+| **Unused GPIO** | — | **GPIO 6** | No motor connected; not configured as an actuator output |
 | **Camera Trigger Line** | SIG Out | **GPIO 21** | Active-LOW pulse (~80 ms) sent to ESP32-CAM GPIO 13 to command instant AI snapshot |
 | **5V Power Out to CAM** | 5V | **5V Pin** | Directly supplies 5V from USB to ESP32-CAM 5V pin |
 | **Common Ground to CAM** | GND | **GND Pin** | Common reference between ESP32-C3 and ESP32-CAM |
@@ -53,7 +53,7 @@ This document details the active electrical wiring for the multi-sensor Intellig
      Shared I2C  ├──────> TOF10120 (SDA: GPIO 4 [Blue], SCL: GPIO 5 [Green])
      Shared I2C  ├──────> MPU6050  (SDA: GPIO 4, SCL: GPIO 5)
      Ultrasonic  ├──────> HC-SR04  (TRIG: GPIO 0, ECHO: GPIO 1, VCC: 5V, GND: GND)
-     Haptics     ├──────> Motor 1 (GPIO 6) & Motor 2 (GPIO 2)
+     Haptics     ├──────> Vibration Motor (GPIO 2)
      Audio       └──────> Piezo Buzzer (GPIO 7)
 ```
 
@@ -77,9 +77,9 @@ This document details the active electrical wiring for the multi-sensor Intellig
    - `GND` to common GND
    - `TRIG` to ESP32-C3 GPIO 0
    - `ECHO` to ESP32-C3 GPIO 1 (configured with internal `INPUT_PULLDOWN`)
-4. **Dual Vibration Actuators**:
-   - **Motor 1 (Primary Proximity)**: Signal to GPIO 6. Pulses between 40 and 60 cm, then gives graded continuous vibration closer than 40 cm (200 Hz brushed DC PWM).
-   - **Motor 2 (Close-Range Cue)**: Signal to GPIO 2. Gives a distinct pulsed cue below 25 cm (200 Hz brushed DC PWM).
+4. **Single Vibration Actuator**:
+   - **Motor**: Signal to GPIO 2. Pulses above 40 cm and below 60 cm, then gives graded continuous vibration at 40 cm and closer (200 Hz brushed DC PWM). Full commanded duty at 10 cm and closer.
+   - **GPIO 6**: Unused; no motor connected or actuator output configured.
    - *Note*: Ensure vibration modules include onboard transistor drivers (MOSFET/BJT module). Direct MCU GPIO cannot supply raw motor current.
 5. **Active Buzzer (Audio Proximity Warning)**:
    - Connected to GPIO 7. Driven with active DC gating (`HIGH` to sound, `LOW` to silence). It gives brief, increasingly frequent chirps as obstacles approach and stays silent during a fall.
@@ -99,4 +99,4 @@ This document details the active electrical wiring for the multi-sensor Intellig
    - Move a hand in front of the Ultrasonic sensor $\rightarrow$ Serial outputs `US: YY.Ycm`.
    - Notice `Dist:` automatically reflects whichever sensor sees the closest hazard.
 5. [ ] **AI Camera Trigger**: In the C3 Serial Monitor, type `c` and press Enter. Verify C3 logs `[Serial] AI Camera capture commanded...` and ESP32-CAM logs `Hardware button pressed! Triggering Gemini Vision...`.
-6. [ ] **Fall Detection & App Sync**: Tilt cane past 65°. Motors and buzzer silence immediately, and BLE dispatches `FALL_STATE:1` to the companion app. Returning upright automatically clears with `FALL_STATE:0`.
+6. [ ] **Fall Detection & App Sync**: Tilt cane past 65°. The motor and buzzer silence immediately, and BLE dispatches `FALL_STATE:1` to the companion app. Returning upright automatically clears with `FALL_STATE:0`.
