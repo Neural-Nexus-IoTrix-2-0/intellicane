@@ -95,10 +95,11 @@ class AiVisionCoordinator(
             onError = { error ->
                 isAnalyzing = false
                 Log.e(TAG, "Gemini analysis error: ${error.message}")
-                val fallback = "Unable to analyze scene at this moment. Please check internet connection."
-                uiListener?.onStatusUpdate("AI Analysis failed: ${error.message}")
-                uiListener?.onDescriptionReady(fallback)
-                ttsManager.speak(fallback, flush = true)
+                val userErrorMessage = error.message ?: "AI Analysis failed."
+                uiListener?.onStatusUpdate("AI Error: $userErrorMessage")
+                uiListener?.onDescriptionReady("⚠️ $userErrorMessage")
+                uiListener?.onTransferError("Gemini AI Error: $userErrorMessage")
+                ttsManager.speak(userErrorMessage, flush = true)
             }
         )
     }

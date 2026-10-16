@@ -482,6 +482,21 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
+            <TextView
+                android:id="@+id/tvMapApiStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
+                android:layout_alignParentTop="true"
+                android:layout_margin="12dp"
+                android:layout_toStartOf="@id/fabUserLocation"
+                android:background="#D9000000"
+                android:padding="10dp"
+                android:text="Initializing Google Maps..."
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/fabUserLocation"
                 android:layout_width="wrap_content"

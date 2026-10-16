@@ -2,6 +2,7 @@ package com.example.intellicane.ai
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -136,9 +137,14 @@ class BleImageReceiver(
             val completeBytes = outputStream.toByteArray()
             Log.d(TAG, "Assembled complete image: ${completeBytes.size} bytes (expected: $expectedBytes)")
 
-            val bitmap = BitmapFactory.decodeByteArray(completeBytes, 0, completeBytes.size)
-            if (bitmap != null) {
-                listener.onImageReceived(bitmap, completeBytes)
+            val rawBitmap = BitmapFactory.decodeByteArray(completeBytes, 0, completeBytes.size)
+            if (rawBitmap != null) {
+                val rotatedBitmap = rotateBitmapAntiClockwise(rawBitmap)
+                val rotatedStream = ByteArrayOutputStream()
+                rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 90, rotatedStream)
+                val rotatedJpegBytes = rotatedStream.toByteArray()
+
+                listener.onImageReceived(rotatedBitmap, rotatedJpegBytes)
             } else {
                 listener.onTransferError("Failed to decode image bytes into Bitmap (corrupt JPEG)")
             }
@@ -148,6 +154,12 @@ class BleImageReceiver(
         } finally {
             chunkMap.clear()
         }
+    }
+
+    private fun rotateBitmapAntiClockwise(source: Bitmap): Bitmap {
+        val matrix = Matrix()
+        matrix.postRotate(-90f) // -90 degrees anti-clockwise
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
     }
 
     fun isTransferActive(): Boolean = isTransferring

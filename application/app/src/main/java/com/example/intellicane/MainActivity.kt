@@ -134,9 +134,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private lateinit var cardMap: CardView
     private lateinit var mapView: MapView
+    private var tvMapApiStatus: TextView? = null
     private lateinit var fabMyLocation: FloatingActionButton
     private lateinit var fabUserLocation: FloatingActionButton
     private var googleMap: GoogleMap? = null
+    private var isMapTilesLoaded = false
+    private val mapTimeoutHandler = Handler(Looper.getMainLooper())
+    private val mapTimeoutRunnable = Runnable {
+        if (!isMapTilesLoaded && !isUserModeActive) {
+            tvMapApiStatus?.visibility = View.VISIBLE
+            tvMapApiStatus?.text = "⚠️ MAP API ERROR: Google Maps tiles failed to load.\n\nPossible Causes:\n1. 'Maps SDK for Android' is NOT enabled in Google Cloud Console.\n2. API Key in local.properties is invalid or restricted.\n\nGo to console.cloud.google.com to enable 'Maps SDK for Android'."
+            tvMapApiStatus?.setTextColor(Color.parseColor("#FF5252"))
+        }
+    }
     private var userMarker: Marker? = null
     private var caretakerMarker: Marker? = null
     private var lastLocation: Location? = null
@@ -564,6 +574,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         cardMap = findViewById(R.id.cardMap)
         mapView = findViewById(R.id.mapView)
+        tvMapApiStatus = findViewById(R.id.tvMapApiStatus)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
@@ -1205,6 +1216,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         googleMap?.mapType = GoogleMap.MAP_TYPE_NORMAL
         googleMap?.uiSettings?.isZoomControlsEnabled = true
         googleMap?.uiSettings?.isCompassEnabled = true
+
+        googleMap?.setOnMapLoadedCallback {
+            isMapTilesLoaded = true
+            mapTimeoutHandler.removeCallbacks(mapTimeoutRunnable)
+            runOnUiThread {
+                tvMapApiStatus?.visibility = View.GONE
+            }
+        }
+
+        isMapTilesLoaded = false
+        mapTimeoutHandler.removeCallbacks(mapTimeoutRunnable)
+        mapTimeoutHandler.postDelayed(mapTimeoutRunnable, 5000L)
 
         lastUserLatLng?.let {
             updateUserMapLocation(it.latitude, it.longitude, lastUserTitleText ?: "User's Location", lastUserPinColor)

@@ -133,7 +133,22 @@ class GeminiVisionService(
 
             if (statusCode !in 200..299) {
                 Log.e(TAG, "Gemini API error ($statusCode): $responseText")
-                throw RuntimeException("Gemini Vision API error HTTP $statusCode: $responseText")
+                val parsedErrorMessage = try {
+                    val errObj = JSONObject(responseText).optJSONObject("error")
+                    val msg = errObj?.optString("message")
+                    val status = errObj?.optString("status")
+                    if (!msg.isNullOrBlank()) "[$status] $msg" else responseText
+                } catch (_: Exception) {
+                    responseText
+                }
+
+                if (statusCode == 429 || parsedErrorMessage.contains("RESOURCE_EXHAUSTED") || parsedErrorMessage.contains("429")) {
+                    throw RuntimeException("Gemini API Rate Limit Exceeded (HTTP 429). Too many requests. Please wait a moment and try again.")
+                } else if (statusCode == 400 || statusCode == 403) {
+                    throw RuntimeException("Gemini API Key/Request Error (HTTP $statusCode): $parsedErrorMessage")
+                } else {
+                    throw RuntimeException("Gemini API Error (HTTP $statusCode): $parsedErrorMessage")
+                }
             }
 
             return parseGeminiResponse(responseText)
