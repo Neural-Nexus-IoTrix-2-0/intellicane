@@ -4,17 +4,17 @@
 
 IntelliCane is a smart white cane prototype combining local obstacle feedback, motion-based fall alerts, on-demand AI scene descriptions, and an Android companion app for users and caretakers.
 
-An ESP32-C3 reads distance and motion sensors and controls two vibration motors and a buzzer. An ESP32-CAM captures images and transfers them through the C3 over Bluetooth Low Energy to the Android app. The phone handles Gemini scene analysis, spoken descriptions, location sharing, and Firebase connectivity.
+An ESP32-C3 reads distance and motion sensors and controls one vibration motor on GPIO 2 and a buzzer. An ESP32-CAM captures images and transfers them through the C3 over Bluetooth Low Energy to the Android app. The phone handles Gemini scene analysis, spoken descriptions, location sharing, and Firebase connectivity.
 
 **Team:** Dulnith Liyanage, Thenul Sahansa, Chamith Chethana, Suneth Vidurasa  
-**Repository overview updated:** 15 October 2026
+**Repository overview updated:** 16 October 2026
 
 ## Project Overview
 
 | Subsystem | Current implementation |
 |---|---|
 | Obstacle sensing | TOF10120 optical ranging and HC-SR04 ultrasonic ranging; the nearest valid reading controls proximity feedback |
-| Tactile feedback | Two vibration motors with different distance-dependent patterns |
+| Tactile feedback | One vibration motor on GPIO 2 with distance-dependent strength and caution pulses |
 | Audible feedback | Passive buzzer with a 520 Hz tone and distance-dependent cadence |
 | Fall alerts | MPU6050 acceleration and tilt thresholds, with BLE fall-state messages |
 | Camera | ESP32-CAM with OV2640; JPEG transfer to the C3 over UART |
@@ -35,8 +35,7 @@ flowchart TD
     IMU["MPU6050 motion sensor"] -->|I2C| C3
     BUTTON["External button / BOOT button"] --> C3
 
-    C3 --> M1["Motor 1: primary proximity"]
-    C3 --> M2["Motor 2: close-range pulses"]
+    C3 --> MOTOR["Vibration motor: GPIO 2"]
     C3 --> BUZZER["Passive buzzer"]
 
     C3 -->|UART capture command| CAM["ESP32-CAM + OV2640"]
@@ -68,16 +67,17 @@ The camera configuration template disables Wi-Fi by default for this UART/BLE op
 
 Both distance sensors contribute to a nearest-valid-distance calculation.
 
-| Distance | Motor 1 | Motor 2 | Buzzer |
-|---|---|---|---|
-| 60 cm or farther | Off | Off | Silent |
-| Greater than 40 cm and below 60 cm | Gentle pulses | Off | Widely spaced chirps |
-| 25–40 cm | Continuous graded vibration | Off | Increasingly frequent chirps |
-| Greater than 10 cm and below 25 cm | Stronger continuous vibration | Distinct pulses | Faster chirps |
-| 10 cm or closer | Full commanded duty | Full-duty pulses, 160 ms on / 160 ms off | 120 ms on / 220 ms off |
-| Neither sensor provides a valid distance | Off | Off | Silent |
+| Distance | Motor (GPIO 2) | Buzzer |
+|---|---|---|
+| 60 cm or farther | Off | Silent |
+| Greater than 40 cm and below 60 cm | Gentle pulses | Widely spaced chirps |
+| Greater than 10 cm and up to 40 cm | Continuous vibration that strengthens as distance decreases | Increasingly frequent chirps |
+| 10 cm or closer | Full commanded duty, continuous | 120 ms on / 220 ms off |
+| Neither sensor provides a valid distance | Off | Silent |
 
-Motor PWM runs at **200 Hz**. The current firmware selects active-HIGH motor drivers and a passive buzzer.
+GPIO 6 is unused and is not configured as a motor output.
+
+Motor PWM runs at **200 Hz**. The current firmware selects an active-HIGH motor driver and a passive buzzer.
 
 An invalid distance is an unknown range; silence does not establish that the path is clear.
 
@@ -97,7 +97,7 @@ FALL_STATE:1
 FALL_STATE:0
 ```
 
-The normal feedback loop silences both motors and the buzzer while a fall alert is active. Button acknowledgments and manual actuator diagnostics have their own output behavior.
+The normal feedback loop silences the motor and the buzzer while a fall alert is active. Button acknowledgments and manual actuator diagnostics have their own output behavior.
 
 This is a cane motion/tilt heuristic, not confirmation that the person has fallen.
 
@@ -111,8 +111,8 @@ This is a cane motion/tilt heuristic, not confirmation that the person has falle
 | HC-SR04 ECHO | GPIO 1, through suitable 3.3 V level conversion |
 | TOF10120 SDA / SCL | GPIO 4 / GPIO 5; I2C address `0x52` |
 | MPU6050 SDA / SCL | GPIO 4 / GPIO 5; normally `0x68`, with `0x69` also supported |
-| Motor 1 driver input | GPIO 6 |
-| Motor 2 driver input | GPIO 2 |
+| Vibration motor driver input | GPIO 2 |
+| Unused former motor output | GPIO 6 |
 | Passive buzzer signal | GPIO 7 |
 | External capture button | GPIO 3 to GND |
 | Onboard BOOT capture button | GPIO 9 |
@@ -292,7 +292,7 @@ The C3 advertises as **`Intelligent-Cane`** using Nordic UART Service:
 |---|---|---|
 | Capture image | `c`, `capture`, `describe` | `capture`, `describe`, `CMD:CAPTURE` |
 | Clear fall state | `reset` or `r` | `reset` or `r` |
-| Test motors | `motor` or `m` | `motor` or `m` |
+| Test motor | `motor` or `m` | `motor` or `m` |
 | Test buzzer | `buzz` or `b` | — |
 
 Normal telemetry is scheduled every **250 ms**, subject to other firmware work.
@@ -367,7 +367,7 @@ c++ -std=c++11 -Wall -Wextra -pedantic \
 /tmp/intellicane-feedback-test
 ```
 
-These tests cover distance boundaries, invalid readings, motor-duty progression, dual-motor zones, output polarity, pulse behavior, and the ground-hazard helper.
+These tests cover distance boundaries, invalid readings, motor-duty progression, single-motor feedback zones, output polarity, pulse behavior, and the ground-hazard helper.
 
 ### Python Tests
 

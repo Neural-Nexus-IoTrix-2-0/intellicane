@@ -12,9 +12,8 @@
  *       TRIG -> GPIO 0, ECHO -> GPIO 1
  *   - MPU-6050 (GY-521) 6-Axis Motion & Fall IMU (I2C Addr 0x68):
  *       Hardware I2C shared on SDA -> GPIO 4, SCL -> GPIO 5
- *   - Dual Haptic Vibration Motors:
- *       Motor 1 (Primary Proximity): GPIO 6 (LEDC, 200 Hz brushed DC motor PWM)
- *       Motor 2 (Dual Proximity):    GPIO 2 (LEDC, 200 Hz brushed DC motor PWM)
+ *   - Haptic Vibration Motor:       GPIO 2 (LEDC, 200 Hz brushed DC motor PWM)
+ *       GPIO 6 is unused and is not configured as an actuator output.
  *   - Alert Buzzer:                  GPIO 7 (short chirps; active DC or passive 800 Hz)
  *   - Pushbutton (Tactile Switch):   GPIO 3 (Active LOW to GND, Internal pullup) + BOOT Button GPIO 9
  *   - ESP32-CAM AI Vision Trigger:   GPIO 21 (Pulses LOW to ESP32-CAM GPIO 13 or UART TX)
@@ -40,11 +39,10 @@
 // ============================================================================
 constexpr uint8_t PIN_US_TRIG     = 0;   // Ultrasonic Trigger (HC-SR04)
 constexpr uint8_t PIN_US_ECHO     = 1;   // Ultrasonic Echo (HC-SR04)
-constexpr uint8_t PIN_MOTOR_GND   = 2;   // Motor 2: Dual Proximity Haptic (LEDC Ch 1)
+constexpr uint8_t PIN_MOTOR       = 2;   // Single proximity motor (LEDC Ch 0); GPIO 6 unused
 constexpr uint8_t PIN_BUTTON      = 3;   // Push Button: Triggers AI Camera capture (Active LOW to GND)
 constexpr uint8_t PIN_I2C_SDA     = 4;   // Shared I2C SDA (TOF10120 0x52 + MPU6050 0x68)
 constexpr uint8_t PIN_I2C_SCL     = 5;   // Shared I2C SCL (TOF10120 0x52 + MPU6050 0x68)
-constexpr uint8_t PIN_MOTOR_FWD   = 6;   // Motor 1: Primary Proximity Haptic (LEDC Ch 0)
 constexpr uint8_t PIN_BUZZER      = 7;   // Buzzer (520 Hz low pleasant tone, high volume)
 constexpr uint8_t PIN_BOOT_BTN    = 9;   // Onboard BOOT Button fallback for bench testing (Active LOW)
 constexpr uint8_t PIN_CAM_RX      = 20;  // High-Speed UART RX from ESP32-CAM TX (GPIO 1)
@@ -56,8 +54,7 @@ HardwareSerial CamSerial(1);
 constexpr bool MOTOR_ACTIVE_LOW      = false;
 constexpr bool BUZZER_IS_PASSIVE     = true; // 50% PWM tone creates rich low frequency with maximum acoustic volume
 constexpr uint32_t MOTOR_PWM_FREQ_HZ = 200; // 200 Hz carrier frequency optimal for DC brushed vibration motors
-constexpr uint8_t MOTOR_FWD_CHANNEL  = 0;
-constexpr uint8_t MOTOR_GND_CHANNEL  = 1;
+constexpr uint8_t MOTOR_CHANNEL      = 0;
 constexpr uint8_t BUZZER_CHANNEL     = 2;
 
 // Nordic UART Service (NUS) UUIDs
@@ -72,8 +69,7 @@ BLECharacteristic *pTxCharacteristic = nullptr;
 BLECharacteristic *pRxCharacteristic = nullptr;
 
 PulseEnvelope beepEnvelope;
-PulseEnvelope motor1Envelope;
-PulseEnvelope motor2Envelope;
+PulseEnvelope motorEnvelope;
 
 // Sensor States
 Adafruit_MPU6050 mpu;
@@ -94,8 +90,7 @@ float tiltAngleDeg = 0.0f;
 float gMagnitude = 1.0f;
 bool fallAlert = false;
 
-uint8_t currentMotorFwdPwm = 0;
-uint8_t currentMotorGndPwm = 0;
+uint8_t currentMotorPwm = 0;
 bool buzzerState = false;
 
 uint32_t lastSensorMs = 0;
@@ -108,8 +103,7 @@ void blePrintln(const String& msg);
 void triggerCameraSnapshot();
 void captureAndStreamImageToBle();
 void checkPushButton();
-void setMotorFwdPwm(uint8_t duty);
-void setMotorGndPwm(uint8_t duty);
+void setMotorPwm(uint8_t duty);
 void setBuzzer(bool state, uint16_t frequencyHz = PLEASANT_ALERT_TONE_HZ);
 float readUltrasonicCm(uint8_t trigPin, uint8_t echoPin);
 bool readTOF10120(float &distCm);
@@ -183,12 +177,10 @@ class CaneRxCallbacks : public BLECharacteristicCallbacks {
                 captureAndStreamImageToBle();
             } else if (lower.indexOf("motor") >= 0 || lower == "m" || lower == "test") {
                 Serial.println("[BLE] Motor diagnostic sequence requested!");
-                blePrintln("[TEST] Testing Motor 1 (GPIO 6) solo 500ms...");
-                setMotorFwdPwm(255); setMotorGndPwm(0); delay(500); setMotorFwdPwm(0); delay(250);
-                blePrintln("[TEST] Testing Motor 2 (GPIO 2) solo 500ms...");
-                setMotorFwdPwm(0); setMotorGndPwm(255); delay(500); setMotorGndPwm(0); delay(250);
-                blePrintln("[TEST] Testing dual motors synchronized 300ms...");
-                setMotorFwdPwm(255); setMotorGndPwm(255); delay(300); setMotorFwdPwm(0); setMotorGndPwm(0);
+                blePrintln("[TEST] Testing motor (GPIO 2) for 500ms...");
+                setMotorPwm(255);
+                delay(500);
+                setMotorPwm(0);
                 blePrintln("[TEST] Motor diagnostic complete.");
             }
         }
@@ -295,10 +287,10 @@ void checkPushButton() {
 
                     // Immediate tactile and acoustic feedback (60ms chirp + haptic tap)
                     setBuzzer(true, PLEASANT_ALERT_TONE_HZ);
-                    setMotorFwdPwm(200);
+                    setMotorPwm(200);
                     delay(60);
                     setBuzzer(false);
-                    setMotorFwdPwm(0);
+                    setMotorPwm(0);
 
                     if (bleClientConnected) {
                         blePrintln(">>> [AI VISION] Camera capture triggered via Physical Push Button <<<");
@@ -468,21 +460,12 @@ void captureAndStreamImageToBle() {
 // ============================================================================
 // Motor & Buzzer Outputs
 // ============================================================================
-void setMotorFwdPwm(uint8_t duty) {
+void setMotorPwm(uint8_t duty) {
     uint8_t output = motorOutputDuty(duty, MOTOR_ACTIVE_LOW);
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWrite(PIN_MOTOR_FWD, output);
+    ledcWrite(PIN_MOTOR, output);
 #else
-    ledcWrite(MOTOR_FWD_CHANNEL, output);
-#endif
-}
-
-void setMotorGndPwm(uint8_t duty) {
-    uint8_t output = motorOutputDuty(duty, MOTOR_ACTIVE_LOW);
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
-    ledcWrite(PIN_MOTOR_GND, output);
-#else
-    ledcWrite(MOTOR_GND_CHANNEL, output);
+    ledcWrite(MOTOR_CHANNEL, output);
 #endif
 }
 
@@ -689,10 +672,8 @@ void setup() {
     esp_base_mac_addr_set(targetBaseMac);
 
     // Motor initial off levels
-    pinMode(PIN_MOTOR_FWD, OUTPUT);
-    pinMode(PIN_MOTOR_GND, OUTPUT);
-    digitalWrite(PIN_MOTOR_FWD, MOTOR_ACTIVE_LOW ? HIGH : LOW);
-    digitalWrite(PIN_MOTOR_GND, MOTOR_ACTIVE_LOW ? HIGH : LOW);
+    pinMode(PIN_MOTOR, OUTPUT);
+    digitalWrite(PIN_MOTOR, MOTOR_ACTIVE_LOW ? HIGH : LOW);
 
     // Camera Trigger line (Default HIGH)
     pinMode(PIN_CAM_TRIG, OUTPUT);
@@ -721,22 +702,17 @@ void setup() {
     // 200 Hz carrier frequency optimal for miniature DC brushed vibration motors
     // (Prevents inductive choke and capacitor bypass at high frequencies)
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    bool m1Ok = ledcAttachChannel(PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, 8, MOTOR_FWD_CHANNEL);
-    bool m2Ok = ledcAttachChannel(PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, 8, MOTOR_GND_CHANNEL);
+    bool motorOk = ledcAttachChannel(PIN_MOTOR, MOTOR_PWM_FREQ_HZ, 8, MOTOR_CHANNEL);
     bool buzzOk = ledcAttachChannel(PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, 8, BUZZER_CHANNEL);
-    Serial.printf("[LEDC] Motor 1 (GPIO %d, %uHz): %s\n", PIN_MOTOR_FWD, MOTOR_PWM_FREQ_HZ, m1Ok ? "OK" : "FAILED");
-    Serial.printf("[LEDC] Motor 2 (GPIO %d, %uHz): %s\n", PIN_MOTOR_GND, MOTOR_PWM_FREQ_HZ, m2Ok ? "OK" : "FAILED");
+    Serial.printf("[LEDC] Motor (GPIO %d, %uHz): %s\n", PIN_MOTOR, MOTOR_PWM_FREQ_HZ, motorOk ? "OK" : "FAILED");
     Serial.printf("[LEDC] Low-frequency buzzer (GPIO %d, %uHz): %s\n", PIN_BUZZER, PLEASANT_ALERT_TONE_HZ, buzzOk ? "OK" : "FAILED");
 #else
-    ledcSetup(MOTOR_FWD_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
-    ledcAttachPin(PIN_MOTOR_FWD, MOTOR_FWD_CHANNEL);
-    ledcSetup(MOTOR_GND_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
-    ledcAttachPin(PIN_MOTOR_GND, MOTOR_GND_CHANNEL);
+    ledcSetup(MOTOR_CHANNEL, MOTOR_PWM_FREQ_HZ, 8);
+    ledcAttachPin(PIN_MOTOR, MOTOR_CHANNEL);
     ledcSetup(BUZZER_CHANNEL, PLEASANT_ALERT_TONE_HZ, 8);
     ledcAttachPin(PIN_BUZZER, BUZZER_CHANNEL);
 #endif
-    setMotorFwdPwm(0);
-    setMotorGndPwm(0);
+    setMotorPwm(0);
     setBuzzer(false);
 
     // Start quietly. Manual Serial/BLE motor diagnostics remain available.
@@ -830,20 +806,10 @@ void loop() {
                 Serial.println("[TEST] Buzzer test complete.");
             } else if (cmd == "m" || cmd == "motor" || cmd == "test") {
                 Serial.println("\n[TEST] === Haptic Motor Diagnostic Sequence Started ===");
-                Serial.println("[TEST] Step 1: Testing Motor 1 (GPIO 6) solo for 500ms at full duty...");
-                setMotorFwdPwm(255); setMotorGndPwm(0);
+                Serial.println("[TEST] Testing motor (GPIO 2) for 500ms at full duty...");
+                setMotorPwm(255);
                 delay(500);
-                setMotorFwdPwm(0);
-                delay(250);
-                Serial.println("[TEST] Step 2: Testing Motor 2 (GPIO 2) solo for 500ms at full duty...");
-                setMotorFwdPwm(0); setMotorGndPwm(255);
-                delay(500);
-                setMotorGndPwm(0);
-                delay(250);
-                Serial.println("[TEST] Step 3: Testing dual motors synchronized for 300ms...");
-                setMotorFwdPwm(255); setMotorGndPwm(255);
-                delay(300);
-                setMotorFwdPwm(0); setMotorGndPwm(0);
+                setMotorPwm(0);
                 Serial.println("[TEST] === Haptic Motor Diagnostic Sequence Complete ===\n");
                 if (bleClientConnected) {
                     blePrintln("[TEST] Motor diagnostic sequence complete.");
@@ -936,33 +902,24 @@ void loop() {
 
     if (fallAlert) {
         // Silent fall mode on cane (no buzzer or motor to prevent user distress)
-        motor1Envelope.update(now, 0, 0, 0);
-        motor2Envelope.update(now, 0, 0, 0);
+        motorEnvelope.update(now, 0, 0, 0);
         beepEnvelope.update(now, 0, 0, 0);
-        currentMotorFwdPwm = 0;
-        currentMotorGndPwm = 0;
-        setMotorFwdPwm(0);
-        setMotorGndPwm(0);
+        currentMotorPwm = 0;
+        setMotorPwm(0);
         buzzerState = false;
         setBuzzer(false);
     } else {
-        // Motor 1 pulses gently at long range, then runs continuously nearby.
-        if (feedback.motor1PulseOnMs > 0) {
-            bool on = motor1Envelope.update(now, feedback.motor1PulseOnMs,
-                                            feedback.motor1PulseOffMs, 1);
-            currentMotorFwdPwm = on ? feedback.motorDuty : 0;
+        // The motor pulses gently at long range, then runs continuously nearby.
+        if (feedback.motorPulseOnMs > 0) {
+            bool on = motorEnvelope.update(now, feedback.motorPulseOnMs,
+                                           feedback.motorPulseOffMs, 1);
+            currentMotorPwm = on ? feedback.motorDuty : 0;
         } else {
-            motor1Envelope.update(now, 0, 0, 0);
-            currentMotorFwdPwm = feedback.motorDuty;
+            motorEnvelope.update(now, 0, 0, 0);
+            currentMotorPwm = feedback.motorDuty;
         }
 
-        // Motor 2 has a separate short-pulse signature below 25 cm.
-        bool motor2On = motor2Envelope.update(now, feedback.motor2PulseOnMs,
-                                               feedback.motor2PulseOffMs,
-                                               feedback.motor2Duty > 0 ? 1 : 0);
-        currentMotorGndPwm = motor2On ? feedback.motor2Duty : 0;
-        setMotorFwdPwm(currentMotorFwdPwm);
-        setMotorGndPwm(currentMotorGndPwm);
+        setMotorPwm(currentMotorPwm);
 
         // Short chirps retain urgency without a near-continuous alarm.
         buzzerState = beepEnvelope.update(now, feedback.beepOnMs, feedback.beepOffMs, feedback.motorDuty > 0 ? 1 : 0);
@@ -1010,19 +967,18 @@ void loop() {
             snprintf(bleStatusBuf, sizeof(bleStatusBuf), "ADVERTISING");
         }
 
-        uint8_t vibPercent = (uint8_t)((currentMotorFwdPwm / 255.0f) * 100.0f);
+        uint8_t vibPercent = (uint8_t)((currentMotorPwm / 255.0f) * 100.0f);
 
         char telemLine[230];
         snprintf(telemLine, sizeof(telemLine),
-                 "[CANE-C3] Dist:%s | ToF:%s | US:%s | Tilt:%s | Fall:%d | Vib:%3d%% (M1:%3d/M2:%3d) | Buzz:%s | %s",
+                 "[CANE-C3] Dist:%s | ToF:%s | US:%s | Tilt:%s | Fall:%d | Vib:%3d%% (Motor:%3d) | Buzz:%s | %s",
                  distBuf,
                  tofBuf,
                  usBuf,
                  tiltBuf,
                  fallAlert ? 1 : 0,
                  vibPercent,
-                 currentMotorFwdPwm,
-                 currentMotorGndPwm,
+                 currentMotorPwm,
                  buzzerState ? "ON" : "OFF",
                  alertMsg);
 

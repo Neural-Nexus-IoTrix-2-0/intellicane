@@ -9,7 +9,8 @@ int main() {
                    std::numeric_limits<float>::quiet_NaN(),
                    std::numeric_limits<float>::infinity()}) {
         auto f = feedbackForDistance(d);
-        assert(f.motorDuty == 0 && f.motor2Duty == 0);
+        assert(f.motorDuty == 0);
+        assert(f.motorPulseOnMs == 0 && f.motorPulseOffMs == 0);
         assert(f.beepOnMs == 0 && f.toneHz == 0);
     }
     auto previous = feedbackForDistance(59.99f);
@@ -21,20 +22,24 @@ int main() {
         assert(f.beepOffMs <= previous.beepOffMs);
         assert(f.toneHz >= previous.toneHz);
         assert(f.beepOnMs + f.beepOffMs <= previous.beepOnMs + previous.beepOffMs);
-        assert(f.motor2Duty >= previous.motor2Duty);
+        // The sole motor must provide a cue throughout the full alert range.
+        assert(f.motorDuty > 0);
+        if (mm <= 400) {
+            assert(f.motorPulseOnMs == 0 && f.motorPulseOffMs == 0);
+        } else {
+            assert(f.motorPulseOnMs == 150 && f.motorPulseOffMs > 0);
+        }
         previous = f;
     }
     auto caution = feedbackForDistance(50.0f);
-    assert(caution.motor1PulseOnMs == 150 && caution.motor1PulseOffMs > 0);
-    assert(caution.motor2Duty == 0);
+    assert(caution.motorPulseOnMs == 150 && caution.motorPulseOffMs > 0);
     auto warning = feedbackForDistance(40.0f);
-    assert(warning.motor1PulseOnMs == 0 && warning.motor2Duty == 0);
-    assert(feedbackForDistance(25.0f).motor2Duty == 0);
+    assert(warning.motorDuty > 0 && warning.motorPulseOnMs == 0);
+    assert(feedbackForDistance(25.0f).motorDuty >= warning.motorDuty);
     auto close = feedbackForDistance(20.0f);
-    assert(close.motor2Duty > 0 && close.motor2PulseOnMs > 0);
-    assert(close.motor2PulseOffMs > 0);
+    assert(close.motorDuty >= warning.motorDuty);
+    assert(close.motorPulseOnMs == 0 && close.motorPulseOffMs == 0);
     assert(feedbackForDistance(10).motorDuty == 255);
-    assert(feedbackForDistance(10).motor2Duty == 255);
     assert(feedbackForDistance(10).beepOffMs >= 200); // No near-continuous tone.
     assert(feedbackForDistance(1).motorDuty == 255);
     assert(motorOutputDuty(0, false) == 0);
@@ -55,6 +60,12 @@ int main() {
     assert(!haptic.update(1150, 150, 700, 1));
     assert(haptic.update(1850, 150, 700, 1));
     assert(!haptic.update(1851, 0, 0, 0));
+    // The caution pulse must also remain correct across millis() rollover.
+    PulseEnvelope rollover;
+    assert(rollover.update(UINT32_MAX - 99, 150, 700, 1));
+    assert(rollover.update(49, 150, 700, 1));
+    assert(!rollover.update(50, 150, 700, 1));
+    assert(rollover.update(750, 150, 700, 1));
     // Ground hazard (ToF laser) tests
     auto normalGround = feedbackForGround(115.0f);
     assert(normalGround.type == GroundHazardType::NONE && normalGround.motorDuty == 0);
@@ -68,5 +79,5 @@ int main() {
     auto stepUp = feedbackForGround(65.0f); // Curb / step up
     assert(stepUp.type == GroundHazardType::STEP_UP && stepUp.motorDuty == 180);
 
-    puts("PASS: range boundaries, cue timing, dual-motor zones, pulse transitions, rollover, and ground hazards");
+    puts("PASS: range boundaries, single-motor cues, pulse transitions, rollover, and ground hazards");
 }
